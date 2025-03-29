@@ -1,0 +1,95 @@
+[
+{
+    "name": "lightweightvk",
+    "source": {
+        "type": "git",
+        "url": "https://github.com/corporateshark/lightweightvk.git",
+        "revision": "35384faf53c870c0cd1bf554325e5dc322c4fa14"
+    }
+},
+{
+    "name": "assimp",
+    "source": {
+        "type": "git",
+        "url": "https://github.com/assimp/assimp.git",
+        "revision": "d91e0e4f428bd5c40d92901603c484810882a30c"
+    }
+},
+{
+    "name": "glTF-Sample-Assets",
+    "source": {
+        "type": "git",
+        "url": "https://github.com/KhronosGroup/glTF-Sample-Assets.git",
+        "revision": "517a5db6aa558f5c57faed8301ba40cd246a9d76"
+    }
+},
+{
+    "name": "bistro/Exterior",
+    "source": {
+        "type": "archive",
+        "url": "https://casual-effects.com/g3d/data10/research/model/bistro/Exterior.zip",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.116 Safari/537.36"
+    }
+},
+{
+    "name": "explosion/explosion0",
+    "source": {
+        "type": "archive",
+        "url": "https://unity3d.com/files/labs/downloads/vfx/assets01/Explosion00/Explosion00-sequence-tga.zip"
+    }
+},
+{
+    "name": "explosion/explosion1",
+    "source": {
+        "type": "archive",
+        "url": "https://unity3d.com/files/labs/downloads/vfx/assets01/Explosion01/Explosion01-sequence-tga.zip"
+    }
+},
+{
+    "name": "explosion/explosion2",
+    "source": {
+        "type": "archive",
+        "url": "https://unity3d.com/files/labs/downloads/vfx/assets01/Explosion02/Explosion02-sequence-tga.zip"
+    }
+},
+{
+    "name": "ImGuizmo",
+    "source": {
+        "type": "git",
+         "url": "https://github.com/CedricGuillemet/ImGuizmo",
+         "revision" : "6d588209f99b1324a608783d1f52faa518886c29"
+    }
+},
+{
+    "name": "bistro/PropTextures",
+    "source": {
+        "type": "archive",
+        "url": "https://casual-effects.com/g3d/data10/research/model/bistro/PropTextures",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.116 Safari/537.36"
+    }
+},
+{
+    "name": "bistro/OtherTextures",
+    "source": {
+        "type": "archive",
+        "url": "https://casual-effects.com/g3d/data10/research/model/bistro/OtherTextures",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.116 Safari/537.36"
+    }
+},
+{
+    "name": "bistro/BuildingTextures",
+    "source": {
+        "type": "archive",
+        "url": "https://casual-effects.com/g3d/data10/research/model/bistro/BuildingTextures",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.116 Safari/537.36"
+    }
+},
+{
+    "name": "bistro/Interior",
+    "source": {
+        "type": "archive",
+        "url": "https://casual-effects.com/g3d/data10/research/model/bistro/Interior.zip",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.116 Safari/537.36"
+    }
+}
+]
