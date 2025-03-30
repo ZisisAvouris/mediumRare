@@ -6,5 +6,8 @@ This repository is used to document and showcase my progress in studying the [Vu
 
 Anything outside the mediumRare directory is the template the book uses and belongs entirely to the book authors. I used the template so I won't have to deal with CMake and dependency management.
 
+## Features
+- WIP
+
 ## Build Instructions
 - WIP

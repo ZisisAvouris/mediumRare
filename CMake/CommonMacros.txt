@@ -33,7 +33,7 @@ macro(SETUP_APP projname chapter)
 	file(GLOB_RECURSE SHADER_FILES LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} src/*.vert src/*.frag src/*.geom src/*.sp src/*.comp src/*.tesc src/*.tese)
 
 	include_directories(src)
-	add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEADER_FILES} ${SHADER_FILES} "../mediumRare/src/ImGuiComponents.cpp")
+	add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEADER_FILES} ${SHADER_FILES} "../mediumRare/src/ImGuiComponents.cpp" "../mediumRare/src/App.cpp")
 
 	SETUP_GROUPS("${SRC_FILES}")
 	SETUP_GROUPS("${HEADER_FILES}")
