@@ -146,7 +146,7 @@ int main( void ) {
 
     u32 frameId = 0;
     app.run( [&]( uint32_t width, uint32_t height, float aspectRatio, float deltaSeconds ) {
-        const mat4 proj = glm::perspective( 45.0f, aspectRatio, 0.2f, 1500.0f );
+        const mat4 proj = glm::perspective( 45.0f, aspectRatio, 0.1f, 1500.0f );
         const lvk::RenderPass renderPass = {
             .color = { { .loadOp = lvk::LoadOp_Clear, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } },
             .depth = {   .loadOp = lvk::LoadOp_Clear, .clearDepth = 1.0f }
@@ -185,6 +185,8 @@ int main( void ) {
                 buf.cmdBindIndexBuffer( indexBufferLod, lvk::IndexFormat_UI32 );
                 buf.cmdDrawIndexed( indicesLod.size(), numMeshes );
             buf.cmdPopDebugGroupLabel();
+
+            app.drawGrid( buf, proj );
 
             app.imgui->beginFrame( framebuffer );
                 const ImVec2 statsSize = mr::ImGuiFPSComponent( app.fpsCounter.getFPS() );

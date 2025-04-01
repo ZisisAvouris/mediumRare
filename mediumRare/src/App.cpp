@@ -90,6 +90,10 @@ mr::App::App( ) {
 }
 
 mr::App::~App() {
+	gridPipeline = nullptr;
+	gridVert     = nullptr;
+	gridFrag     = nullptr;
+
 	imgui        = nullptr;
 	depthTexture = nullptr;
 	ctx          = nullptr;
@@ -120,4 +124,39 @@ void mr::App::run( std::function<void( u32 width, u32 height, f32 aspectRatio, f
 		moveToPositioner.update( deltaSeconds, mouseState.pos, mouseState.pressedLeft );
 		drawFunc( u32(width), u32(height), ratio, deltaSeconds );
 	}
+}
+
+void mr::App::drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj ) {
+	if ( gridPipeline.empty() ) {
+		gridVert     = loadShaderModule( ctx, "../shaders/grid.vert" );
+		gridFrag     = loadShaderModule( ctx, "../shaders/grid.frag" );
+		gridPipeline = ctx->createRenderPipeline({
+			.smVert = gridVert,
+			.smFrag = gridFrag,
+			.color  = { {
+				.format            = ctx->getSwapchainFormat(),
+				.blendEnabled      = true,
+				.srcRGBBlendFactor = lvk::BlendFactor_SrcAlpha,
+				.dstRGBBlendFactor = lvk::BlendFactor_OneMinusSrcAlpha
+			} },
+			.depthFormat = getDepthFormat()
+		});
+		LVK_ASSERT( gridPipeline.valid() );
+	}
+
+	const struct {
+        mat4 mvp;
+        vec4 cameraPos;
+        vec4 origin;
+    } gridPC {
+        .mvp       = proj * camera.getViewMatrix(),
+        .cameraPos = vec4( camera.getPosition(), 1.0f ),
+        .origin    = vec4( 0.0f )
+    };
+    buf.cmdPushDebugGroupLabel( "Grid", 0xFFFF00FF );
+        buf.cmdBindRenderPipeline( gridPipeline );
+        buf.cmdBindDepthState( {} );
+        buf.cmdPushConstants( gridPC );
+        buf.cmdDraw( 6 );
+    buf.cmdPopDebugGroupLabel();
 }

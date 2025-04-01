@@ -17,6 +17,7 @@ using glm::vec4;
 
 #include <shared/UtilsFPS.h>
 #include <shared/Camera.h>
+#include <shared/Utils.h>
 
 #include <functional>
 #include <vector>
@@ -38,6 +39,8 @@ namespace mr {
 
 		void addMouseButtonCallback( GLFWmousebuttonfun cb ) { mouseButtonCallbacks.push_back(cb); }
 		void addKeyCallback( GLFWkeyfun cb )                 { keyCallbacks.push_back(cb); }
+
+		void drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj );
 
 	public:
 		GLFWwindow                          *window = nullptr;
@@ -63,5 +66,9 @@ namespace mr {
 		std::vector<GLFWmousebuttonfun> mouseButtonCallbacks;
 		std::vector<GLFWkeyfun>         keyCallbacks;
 
+	private:
+		lvk::Holder<lvk::ShaderModuleHandle>   gridVert;
+		lvk::Holder<lvk::ShaderModuleHandle>   gridFrag;
+		lvk::Holder<lvk::RenderPipelineHandle> gridPipeline;
 	};
 }
