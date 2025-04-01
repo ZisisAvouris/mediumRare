@@ -4,146 +4,149 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 
+#include <meshoptimizer/src/meshoptimizer.h>
+
 #include "../include/ImGuiComponents.hpp"
 #include "../include/App.hpp"
 
-int main( void ) {
-    App app = App();
-    app.fpsCounter.avgInterval_ = 0.02f;
-    app.fpsCounter.printFPS_    = false;
+struct Vertex {
+    vec3 pos;
+    vec2 uv;
+    vec3 n;
+};
+static_assert( sizeof(Vertex) == 8 * sizeof(f32) );
 
-    LineCanvas3D canvas3d;
+int main( void ) {
+    mr::App app = mr::App();
+    app.fpsCounter.avgInterval_ = 0.25f;
+    app.fpsCounter.printFPS_    = false;
 
     std::unique_ptr<lvk::IContext> ctx( app.ctx.get() );
 
-    lvk::Holder<lvk::ShaderModuleHandle> vert       = loadShaderModule(ctx, "../shaders/main.vert");
-    lvk::Holder<lvk::ShaderModuleHandle> frag       = loadShaderModule(ctx, "../shaders/main.frag");
-    lvk::Holder<lvk::ShaderModuleHandle> skyboxVert = loadShaderModule( ctx, "../shaders/skybox.vert" );
-    lvk::Holder<lvk::ShaderModuleHandle> skyboxFrag = loadShaderModule( ctx, "../shaders/skybox.frag" );
-
-    struct VertexData {
-        vec3 pos;
-        vec3 n;
-        vec2 tc;
-    };
-    const lvk::VertexInput vdesc = {
-        .attributes = { { .location = 0, .format = lvk::VertexFormat::Float3, .offset = offsetof(VertexData, pos) },
-                        { .location = 1, .format = lvk::VertexFormat::Float3, .offset = offsetof(VertexData, n)   },
-                        { .location = 2, .format = lvk::VertexFormat::Float2, .offset = offsetof(VertexData, tc)  }},
-        .inputBindings = { { .stride = sizeof(VertexData) } }
-    };
+    lvk::Holder<lvk::ShaderModuleHandle> vert = loadShaderModule( ctx, "../shaders/main.vert" );
+    lvk::Holder<lvk::ShaderModuleHandle> frag = loadShaderModule( ctx, "../shaders/main.frag" );
 
     lvk::Holder<lvk::RenderPipelineHandle> pipeline = ctx->createRenderPipeline({
-        .vertexInput = vdesc,
         .smVert      = vert,
         .smFrag      = frag,
         .color       = { { .format = ctx->getSwapchainFormat() } },
         .depthFormat = app.getDepthFormat(),
-        .cullMode    = lvk::CullMode_Back,
+        .cullMode    = lvk::CullMode_Back
     });
     LVK_ASSERT( pipeline.valid() );
 
-    lvk::Holder<lvk::RenderPipelineHandle> pipelineSkybox = ctx->createRenderPipeline({
-        .smVert      = skyboxVert,
-        .smFrag      = skyboxFrag,
-        .color       = { { .format = ctx->getSwapchainFormat() } },
-        .depthFormat = app.getDepthFormat()
-    });
-    LVK_ASSERT( pipelineSkybox.valid() );
-
+    lvk::Holder<lvk::TextureHandle> texture = loadTexture( ctx, "../../data/rubber_duck/textures/Duck_baseColor.png" );
     const aiScene *scene = aiImportFile( "../../data/rubber_duck/scene.gltf", aiProcess_Triangulate );
     if ( !scene || !scene->HasMeshes() ) {
         printf("Unable to load rubber duck\n");
         exit( 255 );
     }
     const aiMesh *mesh = scene->mMeshes[0];
-    std::vector<VertexData> vertices;
+    std::vector<Vertex> vertices;
     for ( uint32_t i = 0; i != mesh->mNumVertices; ++i ) {
         const aiVector3D v = mesh->mVertices[i];
         const aiVector3D n = mesh->mNormals[i];
         const aiVector3D t = mesh->mTextureCoords[0][i];
         vertices.push_back( {
-            .pos = vec3(v.x, v.y, v.z), .n = vec3(n.x, n.y, n.z), .tc = vec2(t.x, t.y)
+            .pos = vec3(v.x, v.y, v.z), .uv = vec2(t.x, t.y), .n = vec3(n.x, n.y, n.z)
         });
     }
     std::vector<uint32_t> indices;
     for ( uint32_t i = 0; i != mesh->mNumFaces; ++i ) {
         for ( uint32_t j = 0; j != 3; ++j ) {
-                indices.push_back( mesh->mFaces[i].mIndices[j] );
+            indices.push_back( mesh->mFaces[i].mIndices[j] );
         }
     }
     aiReleaseImport( scene );
 
+    // Mesh optimizations (TODO: Move this to a Model/Mesh class)
+    std::vector<u32> indicesLod; {
+        std::vector<u32> remap( indices.size() );
+        const size_t vertexCount = meshopt_generateVertexRemap( remap.data(), indices.data(), indices.size(), vertices.data(), indices.size(), sizeof(Vertex) );
+
+        std::vector<u32> remappedIndices( indices.size() );
+        std::vector<Vertex> remappedVertices( vertexCount );
+        
+        meshopt_remapIndexBuffer( remappedIndices.data(), indices.data(), indices.size(), remap.data() );
+        meshopt_remapVertexBuffer( remappedVertices.data(), vertices.data(), vertices.size(), sizeof(Vertex), remap.data() );
+
+        meshopt_optimizeVertexCache( remappedIndices.data(), remappedIndices.data(), indices.size(), vertexCount );
+        meshopt_optimizeOverdraw( remappedIndices.data(), remappedIndices.data(), indices.size(), glm::value_ptr(remappedVertices[0].pos), vertexCount, sizeof(Vertex), 1.05f );
+
+        meshopt_optimizeVertexFetch( remappedVertices.data(), remappedIndices.data(), indices.size(), remappedVertices.data(), vertexCount, sizeof(Vertex) );
+
+        const float threshold         = 0.2f;
+        const size_t targetIndexCount = size_t(remappedIndices.size() * threshold);
+        const float targetError       = 0.01f;
+
+        indicesLod.resize( remappedIndices.size() );
+        indicesLod.resize( meshopt_simplify(
+            &indicesLod[0], remappedIndices.data(), remappedIndices.size(), &remappedVertices[0].pos.x, vertexCount, sizeof(Vertex), targetIndexCount, targetError
+        ));
+        indices  = remappedIndices;
+        vertices = remappedVertices;
+    }
+
     const size_t kSizeIndices = sizeof(uint32_t) * indices.size();
-    const size_t kSizeVertices = sizeof(VertexData) * vertices.size();
+    const size_t kSizeVertices = sizeof(Vertex) * vertices.size();
 
     lvk::Holder<lvk::BufferHandle> vertexBuffer = ctx->createBuffer({
-        .usage     = lvk::BufferUsageBits_Vertex,
+        .usage     = lvk::BufferUsageBits_Storage,
         .storage   = lvk::StorageType_Device,
         .size      = kSizeVertices,
         .data      = vertices.data(),
         .debugName = "Buffer: Vertex"
-    });
+    }, nullptr );
     lvk::Holder<lvk::BufferHandle> indexBuffer = ctx->createBuffer({
         .usage     = lvk::BufferUsageBits_Index,
         .storage   = lvk::StorageType_Device,
         .size      = kSizeIndices,
         .data      = indices.data(),
         .debugName = "Buffer: Index"
-    });
-
-    struct PerFrameData {
-        mat4 model;
-        mat4 view;
-        mat4 proj;
-        vec4 cameraPos;
-        uint32_t tex = 0;
-        uint32_t texCube = 0;
-    };
-    lvk::Holder<lvk::BufferHandle> bufferPerFrame = ctx->createBuffer({
-        .usage     = lvk::BufferUsageBits_Uniform,
+    }, nullptr );
+    lvk::Holder<lvk::BufferHandle> indexBufferLod = ctx->createBuffer({
+        .usage     = lvk::BufferUsageBits_Index,
         .storage   = lvk::StorageType_Device,
-        .size      = sizeof(PerFrameData),
-        .debugName = "Buffer: per-frame"
-    });
-    lvk::Holder<lvk::TextureHandle> texture = loadTexture( ctx, "../../data/rubber_duck/textures/Duck_baseColor.png" );
+        .size      = sizeof(u32) * indicesLod.size(),
+        .data      = indicesLod.data(),
+        .debugName = "Buffer: Index LOD"
+    }, nullptr );
 
-    lvk::Holder<lvk::TextureHandle> cubemapTex; {
-        int w, h;
-        const float *img = stbi_loadf( "../../data/piazza_bologni_1k.hdr", &w, &h, nullptr, 4 );
-
-        Bitmap in ( w, h, 4, eBitmapFormat_Float, img );
-        Bitmap out = convertEquirectangularMapToVerticalCross( in );
-        stbi_image_free( (void*)img );
-        stbi_write_hdr( "./screenshot.hdr", out.w_, out.h_, out.comp_, (const float*)out.data_.data() );
-
-        Bitmap cubemap = convertVerticalCrossToCubeMapFaces( out );
-        cubemapTex = ctx->createTexture({
-            .type       = lvk::TextureType_Cube,
-            .format     = lvk::Format_RGBA_F32,
-            .dimensions = { uint32_t(cubemap.w_), uint32_t(cubemap.h_) },
-            .usage      = lvk::TextureUsageBits_Sampled,
-            .data       = cubemap.data_.data(),
-            .debugName  = "piazza_bologni_1k.hdr"
-        });
+    const u32 numMeshes = 32 * 1024;
+    std::vector<vec4> centers( numMeshes );
+    for ( vec4 &p : centers ) {
+        p = vec4( glm::linearRand( -vec3(500.0f), vec3(500.0f) ), glm::linearRand( 0.0f, 3.14159f ) );
     }
+    lvk::Holder<lvk::BufferHandle> bufferPosAngle = ctx->createBuffer({
+        .usage     = lvk::BufferUsageBits_Storage,
+        .storage   = lvk::StorageType_Device,
+        .size      = sizeof(vec4) * numMeshes,
+        .data      = centers.data(),
+        .debugName = "Buffer: angles & positions"
+    });
+    lvk::Holder<lvk::BufferHandle> bufferMatrices[] = {
+        ctx->createBuffer({
+            .usage     = lvk::BufferUsageBits_Storage,
+            .storage   = lvk::StorageType_Device,
+            .size      = sizeof(mat4) * numMeshes,
+            .debugName = "Buffer: matrices 1"
+        }),
+        ctx->createBuffer({
+            .usage     = lvk::BufferUsageBits_Storage,
+            .storage   = lvk::StorageType_Device,
+            .size      = sizeof(mat4) * numMeshes,
+            .debugName = "Buffer: matrices 2"
+        })
+    };
+    lvk::Holder<lvk::ShaderModuleHandle> compute = loadShaderModule( ctx, "../shaders/main.comp" );
+    lvk::Holder<lvk::ComputePipelineHandle> pipelineComputeMat = ctx->createComputePipeline({
+        .smComp = compute
+    });
+    LVK_ASSERT( pipelineComputeMat.valid() );
 
+    u32 frameId = 0;
     app.run( [&]( uint32_t width, uint32_t height, float aspectRatio, float deltaSeconds ) {
-        const mat4 p  = glm::perspective(glm::radians(60.0f), aspectRatio, 0.1f, 1000.0f);
-        const mat4 m1 = glm::rotate(mat4(1.0f), glm::radians(-90.0f), vec3(1, 0, 0));
-        const mat4 m2 = glm::rotate(mat4(1.0f), (float)glfwGetTime(), vec3(0.0f, 1.0f, 0.0f));
-        const mat4 v  = glm::translate(mat4(1.0f), app.camera.getPosition());
-
-        const PerFrameData pushConstants = {
-            .model     = m2 * m1,
-            .view      = app.camera.getViewMatrix(),
-            .proj      = p,
-            .cameraPos = vec4( app.camera.getPosition(), 1.0f ),
-            .tex       = texture.index(),
-            .texCube   = cubemapTex.index(),
-        };
-        ctx->upload( bufferPerFrame, &pushConstants, sizeof(pushConstants) );
-
+        const mat4 proj = glm::perspective( 45.0f, aspectRatio, 0.2f, 1500.0f );
         const lvk::RenderPass renderPass = {
             .color = { { .loadOp = lvk::LoadOp_Clear, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } },
             .depth = {   .loadOp = lvk::LoadOp_Clear, .clearDepth = 1.0f }
@@ -154,21 +157,34 @@ int main( void ) {
         };
 
         lvk::ICommandBuffer &buf = ctx->acquireCommandBuffer(); {
-            buf.cmdBeginRendering( renderPass, framebuffer ); {
-                buf.cmdPushDebugGroupLabel( "Skybox", 0xFF0000FF );
-                buf.cmdBindRenderPipeline( pipelineSkybox );
-                buf.cmdPushConstants( ctx->gpuAddress(bufferPerFrame) );
-                buf.cmdDraw( 36 );
-                buf.cmdPopDebugGroupLabel();
-            } {
-                buf.cmdPushDebugGroupLabel( "Duck", 0xFF0000FF );
-                buf.cmdBindVertexBuffer( 0, vertexBuffer );
+            const mat4 view = glm::translate( mat4(1.0f), vec3(0.0f, 0.0f, -1000.0f + 500.0f * (1.0f - cos(-glfwGetTime() * 0.5f))) );
+            const struct {
+                mat4 viewproj;
+                u32 textureId;
+                u64 bufferPosAngle;
+                u64 bufferMat;
+                u64 bufferVertices;
+                f32 time;
+            } pc {
+                .viewproj       = proj * view,
+                .textureId      = texture.index(),
+                .bufferPosAngle = ctx->gpuAddress( bufferPosAngle ),
+                .bufferMat      = ctx->gpuAddress( bufferMatrices[frameId] ),
+                .bufferVertices = ctx->gpuAddress( vertexBuffer ),
+                .time           = (f32)glfwGetTime()
+            };
+            buf.cmdBindComputePipeline( pipelineComputeMat );
+            buf.cmdPushConstants( pc );
+            buf.cmdDispatchThreadGroups( { .width = numMeshes / 32 } );
+
+            buf.cmdBeginRendering( renderPass, framebuffer, { .buffers = lvk::BufferHandle( bufferMatrices[frameId] ) } );
+            buf.cmdPushDebugGroupLabel( "Duck", 0xFF0000FF );
                 buf.cmdBindRenderPipeline( pipeline );
+                buf.cmdPushConstants( pc );
                 buf.cmdBindDepthState( { .compareOp = lvk::CompareOp_Less, .isDepthWriteEnabled = true } );
-                buf.cmdBindIndexBuffer( indexBuffer, lvk::IndexFormat_UI32 );
-                buf.cmdDrawIndexed( indices.size() );
-                buf.cmdPopDebugGroupLabel();
-            }
+                buf.cmdBindIndexBuffer( indexBufferLod, lvk::IndexFormat_UI32 );
+                buf.cmdDrawIndexed( indicesLod.size(), numMeshes );
+            buf.cmdPopDebugGroupLabel();
 
             app.imgui->beginFrame( framebuffer );
                 const ImVec2 statsSize = mr::ImGuiFPSComponent( app.fpsCounter.getFPS() );
@@ -180,19 +196,11 @@ int main( void ) {
                     app.moveToPositioner.setDesiredAngles( app.cameraAngles );
                     app.camera = Camera( app.moveToPositioner );
                 }
-                canvas3d.clear();
-                canvas3d.setMatrix( pushConstants.proj * pushConstants.view );
-                canvas3d.plane( vec3(0,0,0), vec3(1,0,0), vec3(0,0,1), 40, 40, 10.0f, 10.0f, vec4(1,0,0,1), vec4(0,1,0,1) );
-                canvas3d.box( mat4(1.0f), BoundingBox( vec3(-2), vec3(2)), vec4(1, 1, 0, 1) );
-                canvas3d.frustum(
-                  glm::lookAt(vec3(cos(glfwGetTime()), kInitialCameraPos.y, sin(glfwGetTime())), kInitialCameraTarget, vec3(0.0f, 1.0f, 0.0f)),
-                  glm::perspective(glm::radians(60.0f), aspectRatio, 0.1f, 30.0f), vec4(1, 1, 1, 1)
-                );
-                canvas3d.render( *ctx, framebuffer, buf );
             app.imgui->endFrame( buf );
             buf.cmdEndRendering();
         }
         ctx->submit( buf, ctx->getCurrentSwapchainTexture() );
+        frameId = ( frameId + 1 ) & 1;
     });
 
     ctx.release();

@@ -8,7 +8,7 @@ static void shaderModuleCallback( lvk::IContext *_, lvk::ShaderModuleHandle hand
 	}
 }
 
-App::App( ) {
+mr::App::App( ) {
 	minilog::initialize( nullptr, { .threadNames = false } );
 
 	s32 width = -95, height = -90;
@@ -89,7 +89,7 @@ App::App( ) {
 	});
 }
 
-App::~App() {
+mr::App::~App() {
 	imgui        = nullptr;
 	depthTexture = nullptr;
 	ctx          = nullptr;
@@ -98,7 +98,7 @@ App::~App() {
 	glfwTerminate();
 }
 
-void App::run( std::function<void( u32 width, u32 height, f32 aspectRatio, f32 deltaSeconds )> drawFunc ) {
+void mr::App::run( std::function<void( u32 width, u32 height, f32 aspectRatio, f32 deltaSeconds )> drawFunc ) {
 	f64 timeStamp    = glfwGetTime();
 	f32 deltaSeconds = 0.0f;
 

@@ -1,20 +1,19 @@
 
-#include <../shaders/common.sp>
-
-layout (location=0) in PerVertex vtx;
+layout (location=0) in vec2 uv;
+layout (location=1) in vec3 normal;
+layout (location=2) in vec3 color;
 
 layout (location=0) out vec4 out_FragColor;
 
+layout(push_constant) uniform PerFrameData {
+	mat4 viewproj;
+	uint textureId;
+};
+
 void main() {
-	vec3 n = normalize(vtx.worldNormal);
-	vec3 v = normalize(pc.cameraPos.xyz - vtx.worldPos);
-	vec3 reflection = -normalize(reflect(v, n));
+	vec3 n = normalize(normal);
+	vec3 l = normalize(vec3(1.0, 0.0, 1.0));
+	float NdotL = clamp(dot(n, l), 0.3, 1.0);
 
-	vec4 colorRefl = textureBindlessCube(pc.texCube, 0, reflection);
-	vec4 Ka = colorRefl * 0.3;
-
-	float NdotL = clamp(dot(n, normalize(vec3(0,0,-1))), 0.1, 1.0);
-	vec4 Kd = textureBindless2D(pc.tex, 0, vtx.uv) * NdotL;
-
-	out_FragColor = Ka + Kd;
+	out_FragColor = textureBindless2D(textureId, 0, uv) * NdotL * vec4(color, 1.0);
 };

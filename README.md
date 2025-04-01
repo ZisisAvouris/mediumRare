@@ -6,6 +6,13 @@ This repository is used to document and showcase my progress in studying the [Vu
 
 Anything outside the mediumRare directory is the template the book uses and belongs entirely to the book authors. I used the template so I won't have to deal with CMake and dependency management.
 
+## Screenshots
+<figure>
+    <img src=".github/progress2.png"
+         alt="Instanced Rendering" width="500">
+    <figcaption>Instanced rendering of ~32K rubber ducks (this demo uses meshoptimizer to simplify the model down to ~20% of the original vertex count to achieve somewhat real-time performance)</figcaption>
+</figure>
+
 ## Features
 - WIP
 

@@ -21,45 +21,47 @@ using glm::vec4;
 #include <functional>
 #include <vector>
 
-const vec3 kInitialCameraPos    = vec3( 0.0f, 1.0f, -1.5f );
-const vec3 kInitialCameraTarget = vec3( 0.0f, 0.5f,  0.0f );
-const vec3 kInitialCameraAngles = vec3( -18.5f, 180.0f, 0.0f );
+namespace mr {
+	const vec3 kInitialCameraPos    = vec3( 0.0f, 1.0f, -1.5f );
+	const vec3 kInitialCameraTarget = vec3( 0.0f, 0.5f,  0.0f );
+	const vec3 kInitialCameraAngles = vec3( -18.5f, 180.0f, 0.0f );
 
-class App final {
-public:
-	explicit App();
-	virtual ~App();
+	class App final {
+	public:
+		explicit App();
+		virtual ~App();
 
-	virtual void run( std::function<void( u32 width, u32 height, f32 aspectRatio, f32 deltaSeconds )> );
+		virtual void run( std::function<void( u32 width, u32 height, f32 aspectRatio, f32 deltaSeconds )> );
 
-	lvk::Format getDepthFormat( void ) const         { return ctx->getFormat( depthTexture ); }
-	lvk::TextureHandle getDepthTexture( void ) const { return depthTexture; }
+		lvk::Format getDepthFormat( void ) const         { return ctx->getFormat( depthTexture ); }
+		lvk::TextureHandle getDepthTexture( void ) const { return depthTexture; }
 
-	void addMouseButtonCallback( GLFWmousebuttonfun cb ) { mouseButtonCallbacks.push_back(cb); }
-	void addKeyCallback( GLFWkeyfun cb )                 { keyCallbacks.push_back(cb); }
+		void addMouseButtonCallback( GLFWmousebuttonfun cb ) { mouseButtonCallbacks.push_back(cb); }
+		void addKeyCallback( GLFWkeyfun cb )                 { keyCallbacks.push_back(cb); }
 
-public:
-	GLFWwindow                          *window = nullptr;
-	std::unique_ptr<lvk::IContext>      ctx;
-	lvk::Holder<lvk::TextureHandle>     depthTexture;
-	std::unique_ptr<lvk::ImGuiRenderer> imgui;
+	public:
+		GLFWwindow                          *window = nullptr;
+		std::unique_ptr<lvk::IContext>      ctx;
+		lvk::Holder<lvk::TextureHandle>     depthTexture;
+		std::unique_ptr<lvk::ImGuiRenderer> imgui;
 
-	FramesPerSecondCounter fpsCounter = FramesPerSecondCounter( 0.5f );
+		FramesPerSecondCounter fpsCounter = FramesPerSecondCounter( 0.5f );
 
-	struct MouseState {
-		vec2 pos         = vec2( 0.0f );
-		bool pressedLeft = false;
-	} mouseState;
+		struct MouseState {
+			vec2 pos         = vec2( 0.0f );
+			bool pressedLeft = false;
+		} mouseState;
 
-	CameraPositioner_FirstPerson fpsPositioner = { kInitialCameraPos, kInitialCameraTarget, vec3( 0.0f, 1.0f, 0.0f ) };
-	CameraPositioner_MoveTo moveToPositioner   = { kInitialCameraPos, kInitialCameraAngles };
-	Camera camera                           = Camera( fpsPositioner );
-	vec3 cameraPos    = kInitialCameraPos;
-	vec3 cameraAngles = kInitialCameraAngles;
-    bool cameraType   = false; // TODO: change this to an enum
+		CameraPositioner_FirstPerson fpsPositioner = { kInitialCameraPos, kInitialCameraTarget, vec3( 0.0f, 1.0f, 0.0f ) };
+		CameraPositioner_MoveTo moveToPositioner   = { kInitialCameraPos, kInitialCameraAngles };
+		Camera camera                           = Camera( fpsPositioner );
+		vec3 cameraPos    = kInitialCameraPos;
+		vec3 cameraAngles = kInitialCameraAngles;
+		bool cameraType   = false; // TODO: change this to an enum
 
-protected:
-	std::vector<GLFWmousebuttonfun> mouseButtonCallbacks;
-	std::vector<GLFWkeyfun>         keyCallbacks;
+	protected:
+		std::vector<GLFWmousebuttonfun> mouseButtonCallbacks;
+		std::vector<GLFWkeyfun>         keyCallbacks;
 
-};
+	};
+}
