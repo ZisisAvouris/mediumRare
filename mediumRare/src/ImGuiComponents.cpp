@@ -45,3 +45,15 @@ ImVec2 mr::ImGuiCameraControlsComponent( glm::vec3 &cameraPos, glm::vec3 &camera
 	ImGui::End();
 	return componentSize;
 }
+
+ImVec2 mr::ImGuiRenderOptionsComponent( std::span<bool> options, const ImVec2 pos ) {
+	ImGui::SetNextWindowPos( pos );
+	ImGui::Begin( "Render Options:", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
+	
+		ImGui::Checkbox( "Draw Grid ",     &options[RendererOption::Grid] );
+		ImGui::Checkbox( "Draw Wireframe", &options[RendererOption::Wireframe] );
+
+		const ImVec2 componentSize = ImGui::GetItemRectMax();
+	ImGui::End();
+	return componentSize;
+}

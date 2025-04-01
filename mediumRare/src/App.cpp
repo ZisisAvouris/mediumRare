@@ -87,6 +87,9 @@ mr::App::App( ) {
 			callback( window, key, scanCode, action, mods );
 		}
 	});
+
+	options[RendererOption::Grid]      = true;
+	options[RendererOption::Wireframe] = false; // TODO: Implement wireframe rendering
 }
 
 mr::App::~App() {
@@ -127,6 +130,9 @@ void mr::App::run( std::function<void( u32 width, u32 height, f32 aspectRatio, f
 }
 
 void mr::App::drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj ) {
+	if ( !options[RendererOption::Grid] )
+		return;
+
 	if ( gridPipeline.empty() ) {
 		gridVert     = loadShaderModule( ctx, "../shaders/grid.vert" );
 		gridFrag     = loadShaderModule( ctx, "../shaders/grid.frag" );

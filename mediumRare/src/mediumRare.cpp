@@ -189,8 +189,9 @@ int main( void ) {
             app.drawGrid( buf, proj );
 
             app.imgui->beginFrame( framebuffer );
-                const ImVec2 statsSize = mr::ImGuiFPSComponent( app.fpsCounter.getFPS() );
-                mr::ImGuiCameraControlsComponent( app.cameraPos, app.cameraAngles, app.cameraType, { 10.0f, statsSize.y + mr::COMPONENT_PADDING } );
+                const ImVec2 statsSize         = mr::ImGuiFPSComponent( app.fpsCounter.getFPS() );
+                const ImVec2 camControlSize    = mr::ImGuiCameraControlsComponent( app.cameraPos, app.cameraAngles, app.cameraType, { 10.0f, statsSize.y + mr::COMPONENT_PADDING } );
+                const ImVec2 renderOptionsSize = mr::ImGuiRenderOptionsComponent( app.options, {10.0f, camControlSize.y + mr::COMPONENT_PADDING } );
                 if ( app.cameraType == false ) {
                     app.camera = Camera( app.fpsPositioner );
                 } else {

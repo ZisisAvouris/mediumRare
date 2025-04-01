@@ -1,6 +1,7 @@
 #pragma once
 
 #include "types.hpp"
+#include "RendererOptions.hpp"
 
 #include <lvk/HelpersImGui.h>
 #include <lvk/LVK.h>
@@ -62,6 +63,8 @@ namespace mr {
 		vec3 cameraAngles = kInitialCameraAngles;
 		bool cameraType   = false; // TODO: change this to an enum
 
+		bool options[RendererOption::MAX];
+
 	protected:
 		std::vector<GLFWmousebuttonfun> mouseButtonCallbacks;
 		std::vector<GLFWkeyfun>         keyCallbacks;
@@ -70,5 +73,6 @@ namespace mr {
 		lvk::Holder<lvk::ShaderModuleHandle>   gridVert;
 		lvk::Holder<lvk::ShaderModuleHandle>   gridFrag;
 		lvk::Holder<lvk::RenderPipelineHandle> gridPipeline;
+
 	};
 }
