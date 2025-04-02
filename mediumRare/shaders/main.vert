@@ -1,17 +1,17 @@
 
-#include <../shaders/common.sp>
-
-layout( location = 0 ) out vec2 uv_in;
-layout( location = 1 ) out vec3 worldPos_in;
-
-out gl_PerVertex {
-	vec4 gl_Position;
+layout(push_constant) uniform PerFrameData {
+	mat4 MVP;
 };
 
+layout (location=0) in vec3 in_pos;
+layout (location=1) in vec2 in_tc;
+layout (location=2) in vec3 in_normal;
+
+layout (location=0) out vec2 uv;
+layout (location=1) out vec3 normal;
+
 void main() {
-	vec4 pos    = vec4( getPosition( gl_VertexIndex ), 1.0 );
-	gl_Position = pc.proj * pc.view * pc.model * pos;
-	
-	uv_in       = getTexCoords( gl_VertexIndex );
-	worldPos_in = ( pc.model * pos ).xyz;
+	gl_Position = MVP * vec4(in_pos, 1.0);
+	uv = in_tc;
+	normal = in_normal;
 }
