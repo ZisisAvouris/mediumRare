@@ -12,9 +12,8 @@
 struct Vertex {
     vec3 pos;
     vec2 uv;
-    vec3 n;
+    //vec3 n;
 };
-static_assert( sizeof(Vertex) == 8 * sizeof(f32) );
 
 int main( void ) {
     mr::App app = mr::App();
@@ -24,14 +23,21 @@ int main( void ) {
     std::unique_ptr<lvk::IContext> ctx( app.ctx.get() );
 
     lvk::Holder<lvk::ShaderModuleHandle> vert = loadShaderModule( ctx, "../shaders/main.vert" );
+    lvk::Holder<lvk::ShaderModuleHandle> tesc = loadShaderModule( ctx, "../shaders/main.tesc" );
+    lvk::Holder<lvk::ShaderModuleHandle> geom = loadShaderModule( ctx, "../shaders/main.geom" );
+    lvk::Holder<lvk::ShaderModuleHandle> tese = loadShaderModule( ctx, "../shaders/main.tese" );
     lvk::Holder<lvk::ShaderModuleHandle> frag = loadShaderModule( ctx, "../shaders/main.frag" );
 
     lvk::Holder<lvk::RenderPipelineHandle> pipeline = ctx->createRenderPipeline({
-        .smVert      = vert,
-        .smFrag      = frag,
-        .color       = { { .format = ctx->getSwapchainFormat() } },
-        .depthFormat = app.getDepthFormat(),
-        .cullMode    = lvk::CullMode_Back
+        .topology           = lvk::Topology_Patch,
+        .smVert             = vert,
+        .smTesc             = tesc,
+        .smTese             = tese,
+        .smGeom             = geom,
+        .smFrag             = frag,
+        .color              = { { .format = ctx->getSwapchainFormat() } },
+        .depthFormat        = app.getDepthFormat(),
+        .patchControlPoints = 3,
     });
     LVK_ASSERT( pipeline.valid() );
 
@@ -45,10 +51,9 @@ int main( void ) {
     std::vector<Vertex> vertices;
     for ( uint32_t i = 0; i != mesh->mNumVertices; ++i ) {
         const aiVector3D v = mesh->mVertices[i];
-        const aiVector3D n = mesh->mNormals[i];
         const aiVector3D t = mesh->mTextureCoords[0][i];
         vertices.push_back( {
-            .pos = vec3(v.x, v.y, v.z), .uv = vec2(t.x, t.y), .n = vec3(n.x, n.y, n.z)
+            .pos = vec3(v.x, v.y, v.z), .uv = vec2(t.x, t.y)
         });
     }
     std::vector<uint32_t> indices;
@@ -58,34 +63,6 @@ int main( void ) {
         }
     }
     aiReleaseImport( scene );
-
-    // Mesh optimizations (TODO: Move this to a Model/Mesh class)
-    std::vector<u32> indicesLod; {
-        std::vector<u32> remap( indices.size() );
-        const size_t vertexCount = meshopt_generateVertexRemap( remap.data(), indices.data(), indices.size(), vertices.data(), indices.size(), sizeof(Vertex) );
-
-        std::vector<u32> remappedIndices( indices.size() );
-        std::vector<Vertex> remappedVertices( vertexCount );
-        
-        meshopt_remapIndexBuffer( remappedIndices.data(), indices.data(), indices.size(), remap.data() );
-        meshopt_remapVertexBuffer( remappedVertices.data(), vertices.data(), vertices.size(), sizeof(Vertex), remap.data() );
-
-        meshopt_optimizeVertexCache( remappedIndices.data(), remappedIndices.data(), indices.size(), vertexCount );
-        meshopt_optimizeOverdraw( remappedIndices.data(), remappedIndices.data(), indices.size(), glm::value_ptr(remappedVertices[0].pos), vertexCount, sizeof(Vertex), 1.05f );
-
-        meshopt_optimizeVertexFetch( remappedVertices.data(), remappedIndices.data(), indices.size(), remappedVertices.data(), vertexCount, sizeof(Vertex) );
-
-        const float threshold         = 0.2f;
-        const size_t targetIndexCount = size_t(remappedIndices.size() * threshold);
-        const float targetError       = 0.01f;
-
-        indicesLod.resize( remappedIndices.size() );
-        indicesLod.resize( meshopt_simplify(
-            &indicesLod[0], remappedIndices.data(), remappedIndices.size(), &remappedVertices[0].pos.x, vertexCount, sizeof(Vertex), targetIndexCount, targetError
-        ));
-        indices  = remappedIndices;
-        vertices = remappedVertices;
-    }
 
     const size_t kSizeIndices = sizeof(uint32_t) * indices.size();
     const size_t kSizeVertices = sizeof(Vertex) * vertices.size();
@@ -104,47 +81,25 @@ int main( void ) {
         .data      = indices.data(),
         .debugName = "Buffer: Index"
     }, nullptr );
-    lvk::Holder<lvk::BufferHandle> indexBufferLod = ctx->createBuffer({
-        .usage     = lvk::BufferUsageBits_Index,
-        .storage   = lvk::StorageType_Device,
-        .size      = sizeof(u32) * indicesLod.size(),
-        .data      = indicesLod.data(),
-        .debugName = "Buffer: Index LOD"
-    }, nullptr );
-
-    const u32 numMeshes = 32 * 1024;
-    std::vector<vec4> centers( numMeshes );
-    for ( vec4 &p : centers ) {
-        p = vec4( glm::linearRand( -vec3(500.0f), vec3(500.0f) ), glm::linearRand( 0.0f, 3.14159f ) );
-    }
-    lvk::Holder<lvk::BufferHandle> bufferPosAngle = ctx->createBuffer({
-        .usage     = lvk::BufferUsageBits_Storage,
-        .storage   = lvk::StorageType_Device,
-        .size      = sizeof(vec4) * numMeshes,
-        .data      = centers.data(),
-        .debugName = "Buffer: angles & positions"
-    });
-    lvk::Holder<lvk::BufferHandle> bufferMatrices[] = {
-        ctx->createBuffer({
-            .usage     = lvk::BufferUsageBits_Storage,
-            .storage   = lvk::StorageType_Device,
-            .size      = sizeof(mat4) * numMeshes,
-            .debugName = "Buffer: matrices 1"
-        }),
-        ctx->createBuffer({
-            .usage     = lvk::BufferUsageBits_Storage,
-            .storage   = lvk::StorageType_Device,
-            .size      = sizeof(mat4) * numMeshes,
-            .debugName = "Buffer: matrices 2"
-        })
+    
+    struct PerFrameData {
+        mat4 model           = mat4( 1.0f );
+        mat4 view            = mat4( 1.0f );
+        mat4 proj            = mat4( 1.0f );
+        vec4 cameraPos       = {};
+        u32 texture          = 0;
+        f32 tesselationScale = 1.0f;
+        u64 vertices         = 0;
     };
-    lvk::Holder<lvk::ShaderModuleHandle> compute = loadShaderModule( ctx, "../shaders/main.comp" );
-    lvk::Holder<lvk::ComputePipelineHandle> pipelineComputeMat = ctx->createComputePipeline({
-        .smComp = compute
+    lvk::Holder<lvk::BufferHandle> bufferPerFrame = ctx->createBuffer({
+        .usage     = lvk::BufferUsageBits_Uniform,
+        .storage   = lvk::StorageType_Device,
+        .size      = sizeof(PerFrameData),
+        .debugName = "Buffer: per-frame"
     });
-    LVK_ASSERT( pipelineComputeMat.valid() );
 
     u32 frameId = 0;
+    f32 tesselationScale = 1.0f;
     app.run( [&]( uint32_t width, uint32_t height, float aspectRatio, float deltaSeconds ) {
         const mat4 proj = glm::perspective( 45.0f, aspectRatio, 0.1f, 1500.0f );
         const lvk::RenderPass renderPass = {
@@ -157,41 +112,33 @@ int main( void ) {
         };
 
         lvk::ICommandBuffer &buf = ctx->acquireCommandBuffer(); {
-            const mat4 view = glm::translate( mat4(1.0f), vec3(0.0f, 0.0f, -1000.0f + 500.0f * (1.0f - cos(-glfwGetTime() * 0.5f))) );
-            const struct {
-                mat4 viewproj;
-                u32 textureId;
-                u64 bufferPosAngle;
-                u64 bufferMat;
-                u64 bufferVertices;
-                f32 time;
-            } pc {
-                .viewproj       = proj * view,
-                .textureId      = texture.index(),
-                .bufferPosAngle = ctx->gpuAddress( bufferPosAngle ),
-                .bufferMat      = ctx->gpuAddress( bufferMatrices[frameId] ),
-                .bufferVertices = ctx->gpuAddress( vertexBuffer ),
-                .time           = (f32)glfwGetTime()
-            };
-            buf.cmdBindComputePipeline( pipelineComputeMat );
-            buf.cmdPushConstants( pc );
-            buf.cmdDispatchThreadGroups( { .width = numMeshes / 32 } );
+            const mat4 m = glm::rotate(mat4(1.0f), glm::radians(-90.0f), vec3(1, 0, 0));
+            const mat4 v = glm::rotate(glm::translate(mat4(1.0f), vec3(0.0f, -0.5f, -1.5f)), (float)glfwGetTime(), vec3(0.0f, 1.0f, 0.0f));
+            const mat4 p = glm::perspective(45.0f, aspectRatio, 0.1f, 1000.0f);
 
-            buf.cmdBeginRendering( renderPass, framebuffer, { .buffers = lvk::BufferHandle( bufferMatrices[frameId] ) } );
-            buf.cmdPushDebugGroupLabel( "Duck", 0xFF0000FF );
+            const PerFrameData pc = {
+                .model            = v * m,
+                .view             = app.camera.getViewMatrix(),
+                .proj             = p,
+                .cameraPos        = vec4( app.camera.getPosition(), 1.0f ),
+                .texture          = texture.index(),
+                .tesselationScale = tesselationScale,
+                .vertices         = ctx->gpuAddress( vertexBuffer )
+            };
+            buf.cmdUpdateBuffer( bufferPerFrame, pc );
+
+            buf.cmdBeginRendering( renderPass, framebuffer );
+                buf.cmdBindIndexBuffer( indexBuffer, lvk::IndexFormat_UI32 );
                 buf.cmdBindRenderPipeline( pipeline );
-                buf.cmdPushConstants( pc );
+                buf.cmdPushConstants( ctx->gpuAddress( bufferPerFrame ) );
                 buf.cmdBindDepthState( { .compareOp = lvk::CompareOp_Less, .isDepthWriteEnabled = true } );
-                buf.cmdBindIndexBuffer( indexBufferLod, lvk::IndexFormat_UI32 );
-                buf.cmdDrawIndexed( indicesLod.size(), numMeshes );
-            buf.cmdPopDebugGroupLabel();
+                buf.cmdDrawIndexed( indices.size() );
 
             app.drawGrid( buf, proj );
-
             app.imgui->beginFrame( framebuffer );
                 const ImVec2 statsSize         = mr::ImGuiFPSComponent( app.fpsCounter.getFPS() );
                 const ImVec2 camControlSize    = mr::ImGuiCameraControlsComponent( app.cameraPos, app.cameraAngles, app.cameraType, { 10.0f, statsSize.y + mr::COMPONENT_PADDING } );
-                const ImVec2 renderOptionsSize = mr::ImGuiRenderOptionsComponent( app.options, {10.0f, camControlSize.y + mr::COMPONENT_PADDING } );
+                const ImVec2 renderOptionsSize = mr::ImGuiRenderOptionsComponent( app.options, { 10.0f, camControlSize.y + mr::COMPONENT_PADDING } );
                 if ( app.cameraType == false ) {
                     app.camera = Camera( app.fpsPositioner );
                 } else {
@@ -199,6 +146,10 @@ int main( void ) {
                     app.moveToPositioner.setDesiredAngles( app.cameraAngles );
                     app.camera = Camera( app.moveToPositioner );
                 }
+                ImGui::SetNextWindowPos( { 10.0f, renderOptionsSize.y + mr::COMPONENT_PADDING } );
+                ImGui::Begin( "Tesselation", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
+                    ImGui::SliderFloat( "Scale:", &tesselationScale, 0.7f, 1.2f, "%0.1f" );
+                ImGui::End();
             app.imgui->endFrame( buf );
             buf.cmdEndRendering();
         }
