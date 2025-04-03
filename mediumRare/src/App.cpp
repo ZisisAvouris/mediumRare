@@ -92,6 +92,22 @@ mr::App::App( std::string skyboxTexFilename, std::string skyboxIrrFilename ) {
 	options[RendererOption::Wireframe] = false; // TODO: Implement wireframe rendering
 	options[RendererOption::Skybox]    = true;
 
+	// Initialize Grid
+	gridVert     = loadShaderModule( ctx, "../shaders/grid.vert" );
+	gridFrag     = loadShaderModule( ctx, "../shaders/grid.frag" );
+	gridPipeline = ctx->createRenderPipeline({
+		.smVert = gridVert,
+		.smFrag = gridFrag,
+		.color  = { {
+			.format            = ctx->getSwapchainFormat(),
+			.blendEnabled      = true,
+			.srcRGBBlendFactor = lvk::BlendFactor_SrcAlpha,
+			.dstRGBBlendFactor = lvk::BlendFactor_OneMinusSrcAlpha
+		} },
+		.depthFormat = getDepthFormat()
+	});
+	LVK_ASSERT( gridPipeline.valid() );
+
 	// Initialize Skybox
 	skyboxTexture    = loadTexture( ctx, skyboxTexFilename.c_str(), lvk::TextureType_Cube );
 	skyboxIrradiance = loadTexture( ctx, skyboxIrrFilename.c_str(), lvk::TextureType_Cube );
@@ -104,6 +120,7 @@ mr::App::App( std::string skyboxTexFilename, std::string skyboxIrrFilename ) {
 		.depthFormat  = getDepthFormat(),
 		.samplesCount = 1
 	});
+	LVK_ASSERT( skyboxPipeline.valid() );
 }
 
 mr::App::~App() {
@@ -153,23 +170,6 @@ void mr::App::drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj ) {
 	if ( !options[RendererOption::Grid] )
 		return;
 
-	if ( gridPipeline.empty() ) {
-		gridVert     = loadShaderModule( ctx, "../shaders/grid.vert" );
-		gridFrag     = loadShaderModule( ctx, "../shaders/grid.frag" );
-		gridPipeline = ctx->createRenderPipeline({
-			.smVert = gridVert,
-			.smFrag = gridFrag,
-			.color  = { {
-				.format            = ctx->getSwapchainFormat(),
-				.blendEnabled      = true,
-				.srcRGBBlendFactor = lvk::BlendFactor_SrcAlpha,
-				.dstRGBBlendFactor = lvk::BlendFactor_OneMinusSrcAlpha
-			} },
-			.depthFormat = getDepthFormat()
-		});
-		LVK_ASSERT( gridPipeline.valid() );
-	}
-
 	const struct {
         mat4 mvp;
         vec4 cameraPos;
@@ -179,6 +179,7 @@ void mr::App::drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj ) {
         .cameraPos = vec4( camera.getPosition(), 1.0f ),
         .origin    = vec4( 0.0f )
     };
+
     buf.cmdPushDebugGroupLabel( "Grid", 0xFFFF00FF );
         buf.cmdBindRenderPipeline( gridPipeline );
         buf.cmdBindDepthState( {} );

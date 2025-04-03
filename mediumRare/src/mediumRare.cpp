@@ -105,6 +105,7 @@ int main( void ) {
             buf.cmdBeginRendering( renderPass, framebuffer );
                 
                 app.drawSkybox( buf, app.camera.getViewMatrix(), proj );
+                app.drawGrid( buf, proj );
 
                 buf.cmdBindVertexBuffer( 0, vertexBuffer, 0 );
                 buf.cmdBindIndexBuffer( indexBuffer, lvk::IndexFormat_UI32 );
@@ -113,7 +114,6 @@ int main( void ) {
                 buf.cmdPushConstants( PerFrameData { .mvp = mvp, .baseColor = vec4(1, 1, 1, 1), .baseTextureId = baseColorTexture.index() } );
                 buf.cmdDrawIndexed( indices.size() );
 
-            app.drawGrid( buf, proj );
             app.imgui->beginFrame( framebuffer );
                 const ImVec2 statsSize         = mr::ImGuiFPSComponent( app.fpsCounter.getFPS() );
                 const ImVec2 camControlSize    = mr::ImGuiCameraControlsComponent( app.cameraPos, app.cameraAngles, app.cameraType, { 10.0f, statsSize.y + mr::COMPONENT_PADDING } );
