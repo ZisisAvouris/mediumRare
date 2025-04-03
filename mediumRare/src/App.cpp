@@ -88,9 +88,10 @@ mr::App::App( std::string skyboxTexFilename, std::string skyboxIrrFilename ) {
 		}
 	});
 
-	options[RendererOption::Grid]      = false;
-	options[RendererOption::Wireframe] = false; // TODO: Implement wireframe rendering
-	options[RendererOption::Skybox]    = true;
+	options[RendererOption::Grid]        = false;
+	options[RendererOption::Wireframe]   = false;
+	options[RendererOption::Skybox]      = true;
+	options[RendererOption::BoundingBox] = false;
 
 	// Initialize Grid
 	gridVert     = loadShaderModule( ctx, "../shaders/grid.vert" );

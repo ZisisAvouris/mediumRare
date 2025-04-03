@@ -1,93 +1,78 @@
 #include "../include/ImGuiComponents.hpp"
 #include "../include/App.hpp"
 #include "../include/Mesh.hpp"
+#include <shared/Scene/SceneUtils.h>
+#include <shared/Scene/MergeUtil.h>
+#include <shared/LineCanvas.h>
 
-struct Vertex {
-    vec3 position;
-    vec4 color;
-    vec2 uv;
-};
-struct PerFrameData {
-    mat4 mvp;
-    vec4 baseColor;
-    u32 baseTextureId;
-};
+const char *cachedMeshesFilename    = ".cache/cache.meshes";
+const char *cachedMaterialsFilename = ".cache/cache.materials";
+const char *cachedHierarchyFilename = ".cache/cache.scene";
 
 int main( void ) {
+    if ( !isMeshDataValid(cachedMeshesFilename) || !isMeshHierarchyValid(cachedHierarchyFilename) || !isMeshMaterialsValid(cachedMaterialsFilename) ) {
+        printf( "[INFO] No cached mesh data found. Precaching...\n" );
+
+        MeshData meshData_Exterior, meshData_Interior;
+        Scene scene_Exterior, scene_Interior;
+
+        loadMeshFile( "../../deps/src/bistro/Exterior/exterior.obj", meshData_Exterior, scene_Exterior, false );
+        loadMeshFile( "../../deps/src/bistro/Interior/interior.obj", meshData_Interior, scene_Interior, false );
+
+        printf("[Unmerged] scene items: %u\n", (u32)scene_Exterior.hierarchy.size());
+        mergeNodesWithMaterial(scene_Exterior, meshData_Exterior, "Foliage_Linde_Tree_Large_Orange_Leaves");
+        printf("[Merged orange leaves] scene items: %u\n", (u32)scene_Exterior.hierarchy.size());
+        mergeNodesWithMaterial(scene_Exterior, meshData_Exterior, "Foliage_Linde_Tree_Large_Green_Leaves");
+        printf("[Merged green leaves]  scene items: %u\n", (u32)scene_Exterior.hierarchy.size());
+        mergeNodesWithMaterial(scene_Exterior, meshData_Exterior, "Foliage_Linde_Tree_Large_Trunk");
+        printf("[Merged trunk]  scene items: %u\n", (u32)scene_Exterior.hierarchy.size());
+
+        MeshData meshData;
+        Scene scene;
+
+        mergeScenes(
+            scene, {
+                &scene_Exterior,
+                &scene_Interior
+            }, {}, {
+                static_cast<u32>( meshData_Exterior.meshes.size() ),
+                static_cast<u32>( meshData_Interior.meshes.size() )
+            }
+        );
+        mergeMeshData( meshData, { &meshData_Exterior, &meshData_Interior } );
+        mergeMaterialLists({
+            &meshData_Exterior.materials,
+            &meshData_Interior.materials
+        }, {
+            &meshData_Exterior.textureFiles,
+            &meshData_Interior.textureFiles
+        }, meshData.materials, meshData.textureFiles );
+        scene.localTransform[0] = glm::scale( vec3(0.01f) );
+        markAsChanged( scene, 0 );
+
+        recalculateBoundingBoxes( meshData );
+        saveMeshData( cachedMeshesFilename, meshData );
+        saveMeshDataMaterials( cachedMaterialsFilename, meshData );
+        saveScene( cachedHierarchyFilename, scene );
+    }
+
+    MeshData meshData;
+    const MeshFileHeader header = loadMeshData( cachedMeshesFilename, meshData );
+    loadMeshDataMaterials( cachedMaterialsFilename, meshData );
+
+    Scene scene;
+    loadScene( cachedHierarchyFilename, scene );
+
     mr::App app = mr::App();
     app.fpsCounter.avgInterval_ = 0.25f;
     app.fpsCounter.printFPS_    = false;
 
+    LineCanvas3D canvas3d;
     std::unique_ptr<lvk::IContext> ctx( app.ctx.get() );
+    s32 selectedNode = -1;
 
-    const aiScene *scene = aiImportFile( "../../deps/src/glTF-Sample-Assets/Models/DamagedHelmet/glTF/DamagedHelmet.gltf", aiProcess_Triangulate );
-    if ( !scene || !scene->HasMeshes() ) {
-        exit( 0xFF );
-    }
-    const aiMesh *mesh = scene->mMeshes[0];
-
-    std::vector<Vertex> vertices;
-    vertices.reserve(mesh->mNumVertices);
-    for ( u32 i = 0; i != mesh->mNumVertices; ++i ) {
-        const aiVector3D v = mesh->mVertices[i];
-        const aiColor4D  c = mesh->mColors[0] ? mesh->mColors[0][i] : aiColor4D( 1, 1, 1, 1 );
-        const aiVector3D t = mesh->mTextureCoords[0] ? mesh->mTextureCoords[0][i] : aiVector3D( 0, 0, 0 );
-
-        vertices.push_back({
-            .position = vec3( v.x, v.y, v.z ),
-            .color    = vec4( c.r, c.g, c.b, c.a ),
-            .uv       = vec2( t.x, 1.0f - t.y )
-        });
-    }
-    std::vector<u32> indices;
-    indices.reserve(mesh->mNumFaces * 3);
-    for ( u32 i = 0; i != mesh->mNumFaces; ++i ) {
-        for ( u32 j = 0; j != 3; ++j ) {
-            indices.push_back( mesh->mFaces[i].mIndices[j] );
-        }
-    }
-    aiReleaseImport( scene );
-
-    lvk::Holder<lvk::TextureHandle> baseColorTexture = loadTexture( ctx, "../../deps/src/glTF-Sample-Assets/Models/DamagedHelmet/glTF/Default_albedo.jpg" );
-    if ( baseColorTexture.empty() )
-        exit( 0xFF );
-    lvk::Holder<lvk::BufferHandle> vertexBuffer = ctx->createBuffer({
-        .usage     = lvk::BufferUsageBits_Vertex,
-        .storage   = lvk::StorageType_Device,
-        .size      = sizeof(Vertex) * vertices.size(),
-        .data      = vertices.data(),
-        .debugName = "Buffer: vertex"
-    });
-    lvk::Holder<lvk::BufferHandle> indexBuffer = ctx->createBuffer({
-        .usage     = lvk::BufferUsageBits_Index,
-        .storage   = lvk::StorageType_Device,
-        .size      = sizeof(u32) * indices.size(),
-        .data      = indices.data(),
-        .debugName = "Buffer: index"
-    });
-    const lvk::VertexInput vdesc = {
-        .attributes = {
-            { .location = 0, .format = lvk::VertexFormat::Float3, .offset = 0 },
-            { .location = 1, .format = lvk::VertexFormat::Float4, .offset = offsetof( Vertex, color ) },
-            { .location = 2, .format = lvk::VertexFormat::Float2, .offset = offsetof( Vertex, uv ) }
-        },
-        .inputBindings = { { .stride = sizeof(Vertex) } }
-    };
-
-    lvk::Holder<lvk::ShaderModuleHandle> vert = loadShaderModule( ctx, "../shaders/pbrUnlit.vert" );
-    lvk::Holder<lvk::ShaderModuleHandle> frag = loadShaderModule( ctx, "../shaders/pbrUnlit.frag" );
-
-    lvk::Holder<lvk::RenderPipelineHandle> pipeline = ctx->createRenderPipeline({
-        .vertexInput = vdesc,
-        .smVert      = vert,
-        .smFrag      = frag,
-        .color       = { { .format = ctx->getSwapchainFormat() } },
-        .depthFormat = app.getDepthFormat(),
-        .cullMode    = lvk::CullMode_Back
-    });
-
+    const VkMesh mesh( ctx, meshData, scene, ctx->getSwapchainFormat(), app.getDepthFormat() );
     app.run( [&]( uint32_t width, uint32_t height, float aspectRatio, float deltaSeconds ) {
-        const mat4 proj = glm::perspective( 45.0f, aspectRatio, 0.1f, 1500.0f );
         const lvk::RenderPass renderPass = {
             .color = { { .loadOp = lvk::LoadOp_Clear, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } },
             .depth = {   .loadOp = lvk::LoadOp_Clear, .clearDepth = 1.0f }
@@ -97,24 +82,31 @@ int main( void ) {
             .depthStencil =   { .texture = app.getDepthTexture() }
         };
 
-        const mat4 m1 = glm::rotate(mat4(1.0f), glm::radians(+90.0f), vec3(1, 0, 0));
-        const mat4 m2 = glm::rotate(mat4(1.0f), (float)glfwGetTime() * 0.1f, vec3(0.0f, 1.0f, 0.0f));
+        const mat4 view = app.camera.getViewMatrix();
+        const mat4 proj = glm::perspective( 45.0f, aspectRatio, 0.01f, 1000.0f );
 
-        const mat4 mvp = proj * app.camera.getViewMatrix() * m2 * m1;
         lvk::ICommandBuffer &buf = ctx->acquireCommandBuffer(); {
             buf.cmdBeginRendering( renderPass, framebuffer );
                 
                 app.drawSkybox( buf, app.camera.getViewMatrix(), proj );
                 app.drawGrid( buf, proj );
 
-                buf.cmdBindVertexBuffer( 0, vertexBuffer, 0 );
-                buf.cmdBindIndexBuffer( indexBuffer, lvk::IndexFormat_UI32 );
-                buf.cmdBindRenderPipeline( pipeline );
-                buf.cmdBindDepthState( { .compareOp = lvk::CompareOp_Less, .isDepthWriteEnabled = true } );
-                buf.cmdPushConstants( PerFrameData { .mvp = mvp, .baseColor = vec4(1, 1, 1, 1), .baseTextureId = baseColorTexture.index() } );
-                buf.cmdDrawIndexed( indices.size() );
+                buf.cmdPushDebugGroupLabel( "Mesh", 0xFF0000FF );
+                    mesh.draw( buf, view, proj, app.options[mr::RendererOption::Wireframe] );
+                buf.cmdPopDebugGroupLabel();
 
             app.imgui->beginFrame( framebuffer );
+                canvas3d.clear();
+                canvas3d.setMatrix( proj * view );
+
+                if ( app.options[mr::RendererOption::BoundingBox] ) {
+                    BoundingBox box;
+                    for ( auto &p : scene.meshForNode ) {
+                        box = meshData.boxes[p.second];
+                        canvas3d.box( scene.globalTransform[p.first], box, vec4(1, 0, 0, 1) );
+                    }
+                }
+
                 const ImVec2 statsSize         = mr::ImGuiFPSComponent( app.fpsCounter.getFPS() );
                 const ImVec2 camControlSize    = mr::ImGuiCameraControlsComponent( app.cameraPos, app.cameraAngles, app.cameraType, { 10.0f, statsSize.y + mr::COMPONENT_PADDING } );
                 const ImVec2 renderOptionsSize = mr::ImGuiRenderOptionsComponent( app.options, { 10.0f, camControlSize.y + mr::COMPONENT_PADDING } );
@@ -125,6 +117,14 @@ int main( void ) {
                     app.moveToPositioner.setDesiredAngles( app.cameraAngles );
                     app.camera = Camera( app.moveToPositioner );
                 }
+
+                const ImVec2 sceneGraphSize = mr::ImGuiSceneGraphComponent( scene, selectedNode, { 10.0f, renderOptionsSize.y + mr::COMPONENT_PADDING } );
+                if ( selectedNode > -1 && scene.hierarchy[selectedNode].firstChild < 0 ) {
+                    const u32 meshId      = scene.meshForNode[selectedNode];
+                    const BoundingBox box = meshData.boxes[meshId];
+                    canvas3d.box( scene.globalTransform[selectedNode], box, vec4(0, 1, 0, 1) );
+                }
+                canvas3d.render( *ctx.get(), framebuffer, buf );
             app.imgui->endFrame( buf );
             buf.cmdEndRendering();
         }

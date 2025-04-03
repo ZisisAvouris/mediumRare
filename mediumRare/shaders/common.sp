@@ -1,30 +1,27 @@
 
-struct Vertex {
-	float x, y, z;
-	float u, v;
+#include <../../data/shaders/gltf/common_material.sp>
+
+struct DrawData {
+  uint transformId;
+  uint materialId;
 };
 
-layout( std430, buffer_reference ) readonly buffer Vertices {
-	Vertex in_Vertices[];
+layout(std430, buffer_reference) readonly buffer TransformBuffer {
+  mat4 model[];
 };
 
-layout( std430, buffer_reference ) readonly buffer PerFrameData {
-	mat4 model;
-	mat4 view;
-	mat4 proj;
-	vec4 cameraPos;
-	uint texture;
-	float tesselationScale;
-	Vertices vtx;
+layout(std430, buffer_reference) readonly buffer DrawDataBuffer {
+  DrawData dd[];
 };
 
-layout( push_constant ) uniform PushConstants {
-	PerFrameData pc;
+layout(std430, buffer_reference) readonly buffer MaterialBuffer {
+  MetallicRoughnessDataGPU material[];
 };
 
-vec3 getPosition( int i ) {
-	return vec3( pc.vtx.in_Vertices[i].x, pc.vtx.in_Vertices[i].y, pc.vtx.in_Vertices[i].z );
-}
-vec2 getTexCoords( int i ) {
-	return vec2( pc.vtx.in_Vertices[i].u, pc.vtx.in_Vertices[i].v );
-}
+layout(push_constant) uniform PerFrameData {
+  mat4 viewProj;
+  TransformBuffer transforms;
+  DrawDataBuffer drawData;
+  MaterialBuffer materials;
+  uint texSkyboxIrradiance;
+} pc;

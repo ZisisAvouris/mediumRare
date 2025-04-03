@@ -5,6 +5,7 @@ namespace mr {
 		Grid = 0,
 		Wireframe,
 		Skybox,
+		BoundingBox,
 
 		MAX
 	};
