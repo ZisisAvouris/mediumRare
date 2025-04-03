@@ -52,6 +52,7 @@ ImVec2 mr::ImGuiRenderOptionsComponent( std::span<bool> options, const ImVec2 po
 	
 		ImGui::Checkbox( "Draw Grid ",     &options[RendererOption::Grid] );
 		ImGui::Checkbox( "Draw Wireframe", &options[RendererOption::Wireframe] );
+		ImGui::Checkbox( "Draw Skybox",    &options[RendererOption::Skybox] );
 
 		const ImVec2 componentSize = ImGui::GetItemRectMax();
 	ImGui::End();

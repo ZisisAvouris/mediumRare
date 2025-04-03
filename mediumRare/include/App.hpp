@@ -30,7 +30,7 @@ namespace mr {
 
 	class App final {
 	public:
-		explicit App();
+		explicit App( std::string skyboxTexFilename = "../../data/immenstadter_horn_2k_prefilter.ktx", std::string skyboxIrrFilename = "../../data/immenstadter_horn_2k_irradiance.ktx" );
 		virtual ~App();
 
 		virtual void run( std::function<void( u32 width, u32 height, f32 aspectRatio, f32 deltaSeconds )> );
@@ -42,6 +42,7 @@ namespace mr {
 		void addKeyCallback( GLFWkeyfun cb )                 { keyCallbacks.push_back(cb); }
 
 		void drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj );
+		void drawSkybox( lvk::ICommandBuffer &buf, const mat4 &view, const mat4 &proj ) const;
 
 	public:
 		GLFWwindow                          *window = nullptr;
@@ -70,9 +71,17 @@ namespace mr {
 		std::vector<GLFWkeyfun>         keyCallbacks;
 
 	private:
+		// Grid
 		lvk::Holder<lvk::ShaderModuleHandle>   gridVert;
 		lvk::Holder<lvk::ShaderModuleHandle>   gridFrag;
 		lvk::Holder<lvk::RenderPipelineHandle> gridPipeline;
+
+		// Skybox
+		lvk::Holder<lvk::TextureHandle>        skyboxTexture;
+		lvk::Holder<lvk::TextureHandle>        skyboxIrradiance;
+		lvk::Holder<lvk::ShaderModuleHandle>   skyboxVert;
+		lvk::Holder<lvk::ShaderModuleHandle>   skyboxFrag;
+		lvk::Holder<lvk::RenderPipelineHandle> skyboxPipeline;
 
 	};
 }

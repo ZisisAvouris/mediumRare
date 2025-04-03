@@ -8,7 +8,7 @@ static void shaderModuleCallback( lvk::IContext *_, lvk::ShaderModuleHandle hand
 	}
 }
 
-mr::App::App( ) {
+mr::App::App( std::string skyboxTexFilename, std::string skyboxIrrFilename ) {
 	minilog::initialize( nullptr, { .threadNames = false } );
 
 	s32 width = -95, height = -90;
@@ -88,11 +88,31 @@ mr::App::App( ) {
 		}
 	});
 
-	options[RendererOption::Grid]      = true;
+	options[RendererOption::Grid]      = false;
 	options[RendererOption::Wireframe] = false; // TODO: Implement wireframe rendering
+	options[RendererOption::Skybox]    = true;
+
+	// Initialize Skybox
+	skyboxTexture    = loadTexture( ctx, skyboxTexFilename.c_str(), lvk::TextureType_Cube );
+	skyboxIrradiance = loadTexture( ctx, skyboxIrrFilename.c_str(), lvk::TextureType_Cube );
+	skyboxVert       = loadShaderModule( ctx, "../shaders/skybox.vert" );
+	skyboxFrag       = loadShaderModule( ctx, "../shaders/skybox.frag" );
+	skyboxPipeline   = ctx->createRenderPipeline({
+		.smVert       = skyboxVert,
+		.smFrag       = skyboxFrag,
+		.color        = { { .format = ctx->getSwapchainFormat() } },
+		.depthFormat  = getDepthFormat(),
+		.samplesCount = 1
+	});
 }
 
 mr::App::~App() {
+	skyboxPipeline   = nullptr;
+	skyboxVert       = nullptr;
+	skyboxFrag       = nullptr;
+	skyboxTexture    = nullptr;
+	skyboxIrradiance = nullptr;
+
 	gridPipeline = nullptr;
 	gridVert     = nullptr;
 	gridFrag     = nullptr;
@@ -165,4 +185,24 @@ void mr::App::drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj ) {
         buf.cmdPushConstants( gridPC );
         buf.cmdDraw( 6 );
     buf.cmdPopDebugGroupLabel();
+}
+
+void mr::App::drawSkybox( lvk::ICommandBuffer &buf, const mat4 &view, const mat4 &proj ) const {
+	if ( !options[RendererOption::Skybox] )
+		return;
+
+	const struct {
+		mat4 mvp;
+		u32  skyboxTextureId;
+	} skyboxPC {
+		.mvp             = proj * mat4( mat3(view) ),
+		.skyboxTextureId = skyboxTexture.index()
+	};
+	
+	buf.cmdPushDebugGroupLabel( "Skybox", 0xFF0000FF );
+		buf.cmdBindRenderPipeline( skyboxPipeline );
+		buf.cmdPushConstants( skyboxPC );
+		buf.cmdBindDepthState( { .isDepthWriteEnabled = false } );
+		buf.cmdDraw( 36 );
+	buf.cmdPopDebugGroupLabel();
 }

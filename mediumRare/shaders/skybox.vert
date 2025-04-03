@@ -1,6 +1,9 @@
-#include <../shaders/common.sp>
+layout( push_constant ) uniform PerFrameData {
+	mat4 mvp;
+	uint skyboxTex;
+} pc;
 
-layout (location=0) out vec3 dir;
+layout ( location = 0 ) out vec3 dir;
 
 const vec3 pos[8] = vec3[8](
 	vec3(-1.0,-1.0, 1.0),
@@ -25,6 +28,6 @@ const int indices[36] = int[36](
 
 void main() {
 	int idx = indices[gl_VertexIndex];
-	gl_Position = pc.proj * mat4(mat3(pc.view)) * vec4(1.0 * pos[idx], 1.0);
+	gl_Position = pc.mvp * vec4( 1.0 * pos[idx], 1.0 );
 	dir = pos[idx].xyz;
 }
