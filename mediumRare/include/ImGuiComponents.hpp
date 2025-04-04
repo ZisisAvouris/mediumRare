@@ -7,6 +7,10 @@
 #include <span>
 
 #include <shared/Scene/Scene.h>
+#include <shared/Scene/VtxData.h>
+#include <deps/src/ImGuizmo/ImGuizmo.h>
+
+using TextureCache = std::vector<lvk::Holder<lvk::TextureHandle>>;
 
 namespace mr {
 	static constexpr float COMPONENT_PADDING = 20.0f;
@@ -18,4 +22,8 @@ namespace mr {
 
 	s32 __renderSceneTreeUI( const Scene &scene, s32 node, s32 selectedNode );
 	ImVec2 ImGuiSceneGraphComponent( const Scene &scene, s32 &selectedNode, const ImVec2 pos = { 10, 10 } );
+
+	bool __editTransformUI( const mat4 &view, const mat4 &proj, mat4 &matrix );
+	bool __editMaterialUI( Scene &scene, MeshData &meshData, s32 node, s32 &outUpdateMaterialIndex, const TextureCache &textureCache );
+	ImVec2 ImGuiEditNodeComponent( Scene &scene, MeshData &meshData, const mat4 &view, const mat4 &proj, s32 node, s32 &outUpdateMaterialIndex, const TextureCache &textureCache );
 }

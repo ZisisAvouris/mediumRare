@@ -108,3 +108,125 @@ ImVec2 mr::ImGuiSceneGraphComponent( const Scene &scene, s32 &selectedNode, cons
 	ImGui::End();
 	return componentSize;
 }
+
+bool mr::__editTransformUI( const mat4 &view, const mat4 &proj, mat4 &matrix ) {
+	static ImGuizmo::OPERATION gizmoOperation( ImGuizmo::TRANSLATE );
+
+	ImGui::Text( "Transforms:" );
+	if ( ImGui::RadioButton( "Translate", gizmoOperation == ImGuizmo::TRANSLATE ) ) {
+		gizmoOperation = ImGuizmo::TRANSLATE;
+	}
+
+	if ( ImGui::RadioButton( "Rotate", gizmoOperation == ImGuizmo::ROTATE ) ) {
+		gizmoOperation = ImGuizmo::ROTATE;
+	}
+
+	ImGuiIO &io = ImGui::GetIO();
+	ImGuizmo::SetRect( 0, 0, io.DisplaySize.x, io.DisplaySize.y );
+	return ImGuizmo::Manipulate( glm::value_ptr(view), glm::value_ptr(proj), gizmoOperation, ImGuizmo::WORLD, glm::value_ptr(matrix) );
+}
+
+bool mr::__editMaterialUI( Scene &scene, MeshData &meshData, s32 node, s32 &outUpdateMaterialIndex, const TextureCache &textureCache ) {
+	static s32 *textureToEdit = nullptr;
+
+	if ( !scene.materialForNode.contains(node) ) {
+		return false;
+	}
+
+	const u32 matIdx   = scene.materialForNode[node];
+	Material &material = meshData.materials[matIdx];
+
+	bool updated = false;
+	updated |= ImGui::ColorEdit3( "Emissive color", glm::value_ptr(material.emissiveFactor) );
+	updated |= ImGui::ColorEdit3( "Base color", glm::value_ptr(material.baseColorFactor) );
+
+	const char *ImagesGalleryName = "Images Gallery";
+
+	auto drawTextureUI = [&textureCache, ImagesGalleryName]( const char *name, s32 &texture ) {
+		if ( texture == -1 )
+			return;
+
+		ImGui::Text( "%s", name );
+		ImGui::Image( textureCache[texture].index(), ImVec2( 512, 512 ), ImVec2( 0, 1 ), ImVec2( 1, 0 ) );
+		if ( ImGui::IsItemClicked() ) {
+			textureToEdit = &texture;
+			ImGui::OpenPopup( ImagesGalleryName );
+		}
+	};
+
+	ImGui::Separator();
+	ImGui::Text( "Click on a texture to change it!" );
+	ImGui::Separator();
+
+	drawTextureUI( "Base texture:",     material.baseColorTexture );
+	drawTextureUI( "Emissive texture:", material.emissiveTexture );
+	drawTextureUI( "Normal texture:",   material.normalTexture );
+	drawTextureUI( "Opacity texture:",  material.opacityTexture );
+
+	if ( const ImGuiViewport *v = ImGui::GetMainViewport() ) {
+		ImGui::SetNextWindowPos( ImVec2(v->WorkSize.x * 0.5f, v->WorkSize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f) );
+	}
+	if ( ImGui::BeginPopupModal(ImagesGalleryName, nullptr, ImGuiWindowFlags_AlwaysAutoResize) ) {
+		for ( s32 i = 0; i != textureCache.size(); ++i ) {
+			if ( i && i % 4 != 0 )
+				ImGui::SameLine();
+			ImGui::Image( textureCache[i].index(), ImVec2(256, 256), ImVec2(0, 1), ImVec2(1, 0) );
+			if ( ImGui::IsItemHovered() ) {
+				ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), 0x66FFFFFF );
+			}
+
+			if ( ImGui::IsItemClicked() ) {
+				*textureToEdit = i;
+				updated        = true;
+				ImGui::CloseCurrentPopup();
+			}
+		}
+		ImGui::EndPopup();
+	}
+
+	if ( updated ) {
+		outUpdateMaterialIndex = static_cast<s32>( matIdx );
+	}
+	return updated;
+}
+
+ImVec2 mr::ImGuiEditNodeComponent( Scene &scene, MeshData &meshData, const mat4 &view, const mat4 &proj, s32 node, s32 &outUpdateMaterialIndex, const TextureCache &textureCache ) {
+	ImGuizmo::SetOrthographic( false );
+	ImGuizmo::BeginFrame();
+
+	std::string name  = getNodeName( scene, node );
+	std::string label = name.empty() ? std::string("Node") + std::to_string(node) : name;
+	label             = "Node: " + label;
+
+	if ( const ImGuiViewport *v = ImGui::GetMainViewport() ) {
+		ImGui::SetNextWindowPos( ImVec2( v->WorkSize.x * 0.83f, 0.0f ) );
+		ImGui::SetNextWindowSize( ImVec2( v->WorkSize.x / 6, v->WorkSize.y ) );
+	}
+	ImGui::Begin( "Editor", nullptr, ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize );
+	if ( !name.empty() ) {
+		ImGui::Text( "%s", label.c_str() );
+	}
+
+	if ( node >= 0 ) {
+		ImGui::Separator();
+		ImGuizmo::PushID( 1 );
+
+		mat4 globalTransform = scene.globalTransform[node];
+		mat4 srcTransform    = globalTransform;
+		mat4 localTransform  = scene.localTransform[node];
+
+		if ( mr::__editTransformUI( view, proj, globalTransform ) ) {
+			mat4 deltaTransform        = glm::inverse( srcTransform ) * globalTransform;
+			scene.localTransform[node] = localTransform * deltaTransform;
+			markAsChanged( scene, node );
+		}
+
+		ImGui::Separator();
+		ImGui::Text( "%s", "Material" );
+
+		mr::__editMaterialUI( scene, meshData, node, outUpdateMaterialIndex, textureCache );
+		ImGuizmo::PopID();
+	}
+	ImGui::End();
+	return ImVec2();
+}

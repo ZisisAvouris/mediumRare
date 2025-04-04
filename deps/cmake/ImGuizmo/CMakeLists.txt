@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.19)
 
 project("ImGuizmo")
 
-include_directories(../../src/imgui)
+include_directories(../../src/lightweightvk/third-party/deps/src/imgui)
 include_directories(../../src/ImGuizmo)
 
 add_library(ImGuizmo ../../src/ImGuizmo/ImGuizmo.cpp ../../src/ImGuizmo/ImGuizmo.h)

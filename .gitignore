@@ -11,3 +11,4 @@ imgui.ini
 .vs/
 *.exe
 *.meshes
+deps/cmake/*

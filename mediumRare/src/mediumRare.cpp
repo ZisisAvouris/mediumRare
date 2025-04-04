@@ -85,6 +85,7 @@ int main( void ) {
         const mat4 view = app.camera.getViewMatrix();
         const mat4 proj = glm::perspective( 45.0f, aspectRatio, 0.01f, 1000.0f );
 
+        s32 updateMaterialIndex = -1;
         lvk::ICommandBuffer &buf = ctx->acquireCommandBuffer(); {
             buf.cmdBeginRendering( renderPass, framebuffer );
                 
@@ -124,11 +125,19 @@ int main( void ) {
                     const BoundingBox box = meshData.boxes[meshId];
                     canvas3d.box( scene.globalTransform[selectedNode], box, vec4(0, 1, 0, 1) );
                 }
+                mr::ImGuiEditNodeComponent( scene, meshData, view, proj, selectedNode, updateMaterialIndex, mesh.textureCache_ );
                 canvas3d.render( *ctx.get(), framebuffer, buf );
             app.imgui->endFrame( buf );
             buf.cmdEndRendering();
         }
         ctx->submit( buf, ctx->getCurrentSwapchainTexture() );
+
+        if ( recalculateGlobalTransforms( scene ) ) {
+            mesh.updateGlobalTransforms( scene.globalTransform.data(), scene.globalTransform.size() );
+        }
+        if ( updateMaterialIndex > -1 ) {
+            mesh.updateMaterial( meshData.materials.data(), updateMaterialIndex );
+        } 
     });
 
     ctx.release();
