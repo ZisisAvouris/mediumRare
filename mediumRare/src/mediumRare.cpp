@@ -71,7 +71,53 @@ int main( void ) {
     std::unique_ptr<lvk::IContext> ctx( app.ctx.get() );
     s32 selectedNode = -1;
 
-    const VkMesh mesh( ctx, meshData, scene, ctx->getSwapchainFormat(), app.getDepthFormat() );
+    LightParams light, prevLight = { .depthBiasConst = 0 };
+    lvk::Holder<lvk::TextureHandle> shadowMap = ctx->createTexture({
+        .type       = lvk::TextureType_2D,
+        .format     = lvk::Format_Z_UN16,
+        .dimensions = { 4096, 4096 },
+        .usage      = lvk::TextureUsageBits_Attachment | lvk::TextureUsageBits_Sampled,
+        .swizzle    = { .r = lvk::Swizzle_R, .g = lvk::Swizzle_R, .b = lvk::Swizzle_R, .a = lvk::Swizzle_1 },
+        .debugName  = "Shadow Map"
+    });
+    lvk::Holder<lvk::SamplerHandle> shadowSampler = ctx->createSampler({
+        .wrapU               = lvk::SamplerWrap_Clamp,
+        .wrapV               = lvk::SamplerWrap_Clamp,
+        .depthCompareOp      = lvk::CompareOp_LessEqual,
+        .depthCompareEnabled = true,
+        .debugName           = "Sampler: shadow"
+    });
+    lvk::Holder<lvk::BufferHandle> bufferLight = ctx->createBuffer({
+        .usage     = lvk::BufferUsageBits_Storage,
+        .storage   = lvk::StorageType_Device,
+        .size      = sizeof(LightData),
+        .debugName = "Buffer: light"
+    });
+
+    const VkMesh mesh( ctx, meshData, scene );
+    Pipeline shadowPipeline( ctx, meshData.streams, lvk::Format_Invalid, ctx->getFormat(shadowMap), 1,
+        loadShaderModule( ctx, "../shaders/shadow.vert" ),
+        loadShaderModule( ctx, "../shaders/shadow.frag" ), lvk::CullMode_None ); // Experiment with backface culling here, it seems it makes no difference for bistro
+    Pipeline opaquePipeline( ctx, meshData.streams, ctx->getSwapchainFormat(), app.getDepthFormat(), 1,
+        loadShaderModule( ctx, "../shaders/main.vert" ),
+        loadShaderModule( ctx, "../shaders/main.frag" ), lvk::CullMode_Back );
+
+    std::vector<BoundingBox> reorderedBoxes;
+    reorderedBoxes.resize( scene.globalTransform.size() );
+    for ( auto &p : scene.meshForNode ) {
+        reorderedBoxes[p.first] = meshData.boxes[p.second].getTransformed( scene.globalTransform[p.first] );
+    }
+    BoundingBox bigBoxWS = reorderedBoxes.front();
+    for ( const auto &b : reorderedBoxes ) {
+        bigBoxWS.combinePoint( b.min_ );
+        bigBoxWS.combinePoint( b.max_ );
+    }
+
+    const mat4 scaleBias = mat4( 0.5, 0.0, 0.0, 0.0,
+                                 0.0, 0.5, 0.0, 0.0,
+                                 0.0, 0.0, 1.0, 0.0,
+                                 0.5, 0.5, 0.0, 1.0 );
+
     app.run( [&]( uint32_t width, uint32_t height, float aspectRatio, float deltaSeconds ) {
         const lvk::RenderPass renderPass = {
             .color = { { .loadOp = lvk::LoadOp_Clear, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } },
@@ -83,17 +129,63 @@ int main( void ) {
         };
 
         const mat4 view = app.camera.getViewMatrix();
-        const mat4 proj = glm::perspective( 45.0f, aspectRatio, 0.01f, 1000.0f );
+        const mat4 proj = glm::perspective( 45.0f, aspectRatio, 0.01f, 200.0f );
+
+        const mat4 rot1      = glm::rotate( mat4(1.0f), glm::radians(light.theta), glm::vec3(0, 1, 0) );
+        const mat4 rot2      = glm::rotate( rot1, glm::radians(light.phi), glm::vec3(1, 0, 0) );
+        const vec3 lightDir  = glm::normalize( vec3(rot2 * vec4(0.0f, -1.0f, 0.0f, 1.0f)) );
+        const mat4 lightView = glm::lookAt( glm::vec3(0.0f), lightDir, vec3(0, 0, 1) );
+        
+        const BoundingBox boxLS = bigBoxWS.getTransformed( lightView );
+        const mat4 lightProj    = glm::orthoLH_ZO( boxLS.min_.x, boxLS.max_.x, boxLS.min_.y, boxLS.max_.y, boxLS.max_.z, boxLS.min_.z );
 
         s32 updateMaterialIndex = -1;
         lvk::ICommandBuffer &buf = ctx->acquireCommandBuffer(); {
-            buf.cmdBeginRendering( renderPass, framebuffer );
+            if ( prevLight != light ) { // Only update shadow map when the light parameters changed
+                prevLight = light;
+                buf.cmdBeginRendering(
+                    lvk::RenderPass  { .depth = { .loadOp = lvk::LoadOp_Clear, .clearDepth = 1.0f } },
+                    lvk::Framebuffer { .depthStencil = { .texture = shadowMap } }
+                );
+                buf.cmdPushDebugGroupLabel( "Shadow Pass", 0xFFFF00FF );
+                    buf.cmdSetDepthBias( light.depthBiasConst, light.depthBiasSlope );
+                    buf.cmdSetDepthBiasEnable( true );
+                    mesh.draw( buf, shadowPipeline, lightView, lightProj );
+                    buf.cmdSetDepthBiasEnable( false );
+                buf.cmdPopDebugGroupLabel();
+                buf.cmdEndRendering();
                 
-                app.drawSkybox( buf, app.camera.getViewMatrix(), proj );
+                buf.cmdUpdateBuffer( bufferLight, LightData {
+                    .viewProjBias  = scaleBias * lightProj * lightView,
+                    .lightDir      = vec4( lightDir, 0.0f ),
+                    .shadowTexture = shadowMap.index(),
+                    .shadowSampler = shadowSampler.index()
+                });
+            }
+
+            buf.cmdBeginRendering( renderPass, framebuffer, { .textures = lvk::TextureHandle(shadowMap) } );
+                app.drawSkybox( buf, view, proj );
                 app.drawGrid( buf, proj );
 
                 buf.cmdPushDebugGroupLabel( "Mesh", 0xFF0000FF );
-                    mesh.draw( buf, view, proj, app.options[mr::RendererOption::Wireframe] );
+                    const struct {
+                        mat4 viewProj;
+                        u64  bufferTransforms;
+                        u64  bufferDrawData;
+                        u64  bufferMaterials;
+                        u64  bufferLight;
+                        u32  skyboxIrradiance;
+                    } pc {
+                        .viewProj         = proj * view,
+                        .bufferTransforms = ctx->gpuAddress( mesh.bufferTransforms_ ),
+                        .bufferDrawData   = ctx->gpuAddress( mesh.bufferDrawData_ ),
+                        .bufferMaterials  = ctx->gpuAddress( mesh.bufferMaterials_ ),
+                        .bufferLight      = ctx->gpuAddress( bufferLight ),
+                        .skyboxIrradiance = app.skyboxIrradiance.index()
+                    };
+                    static_assert( sizeof(pc) <= 128 );
+                    mesh.draw( buf, opaquePipeline, &pc, sizeof(pc), lvk::DepthState {.compareOp = lvk::CompareOp_Less, .isDepthWriteEnabled = true},
+                        app.options[mr::RendererOption::Wireframe] );
                 buf.cmdPopDebugGroupLabel();
 
             app.imgui->beginFrame( framebuffer );
@@ -108,6 +200,10 @@ int main( void ) {
                     }
                 }
 
+                if ( app.options[mr::RendererOption::LightFrustum] ) {
+                    canvas3d.frustum( lightView, lightProj, vec4(1, 1, 0, 1) );
+                }
+
                 const ImVec2 statsSize         = mr::ImGuiFPSComponent( app.fpsCounter.getFPS() );
                 const ImVec2 camControlSize    = mr::ImGuiCameraControlsComponent( app.cameraPos, app.cameraAngles, app.cameraType, { 10.0f, statsSize.y + mr::COMPONENT_PADDING } );
                 const ImVec2 renderOptionsSize = mr::ImGuiRenderOptionsComponent( app.options, { 10.0f, camControlSize.y + mr::COMPONENT_PADDING } );
@@ -119,7 +215,9 @@ int main( void ) {
                     app.camera = Camera( app.moveToPositioner );
                 }
 
-                const ImVec2 sceneGraphSize = mr::ImGuiSceneGraphComponent( scene, selectedNode, { 10.0f, renderOptionsSize.y + mr::COMPONENT_PADDING } );
+                const ImVec2 lightControlsSize = mr::ImGuiLightControlsComponent( light, shadowMap.index(), { 10.0f, renderOptionsSize.y + mr::COMPONENT_PADDING } );
+
+                const ImVec2 sceneGraphSize    = mr::ImGuiSceneGraphComponent( scene, selectedNode, { 10.0f, lightControlsSize.y + mr::COMPONENT_PADDING } );
                 if ( selectedNode > -1 && scene.hierarchy[selectedNode].firstChild < 0 ) {
                     const u32 meshId      = scene.meshForNode[selectedNode];
                     const BoundingBox box = meshData.boxes[meshId];

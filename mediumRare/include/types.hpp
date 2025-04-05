@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <glm/glm.hpp>
 
 typedef uint64_t u64;
 typedef uint32_t u32;
@@ -14,3 +15,19 @@ typedef int8_t   s8;
 
 typedef double f64;
 typedef float  f32;
+
+struct LightParams {
+    f32 theta =  90.0f;
+    f32 phi   = -26.0f;
+    f32 depthBiasConst = 1.1f;
+    f32 depthBiasSlope = 2.0f;
+
+    bool operator==( const LightParams& ) const = default;
+};
+
+struct LightData {
+    glm::mat4 viewProjBias;
+    glm::vec4 lightDir;
+    u32       shadowTexture;
+    u32       shadowSampler;
+};

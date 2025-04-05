@@ -6,6 +6,7 @@ namespace mr {
 		Wireframe,
 		Skybox,
 		BoundingBox,
+		LightFrustum,
 
 		MAX
 	};

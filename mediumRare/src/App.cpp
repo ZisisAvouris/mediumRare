@@ -88,26 +88,16 @@ mr::App::App( std::string skyboxTexFilename, std::string skyboxIrrFilename ) {
 		}
 	});
 
-	options[RendererOption::Grid]        = false;
-	options[RendererOption::Wireframe]   = false;
-	options[RendererOption::Skybox]      = true;
-	options[RendererOption::BoundingBox] = false;
+	options[RendererOption::Grid]         = false;
+	options[RendererOption::Wireframe]    = false;
+	options[RendererOption::Skybox]       = true;
+	options[RendererOption::BoundingBox]  = false;
+	options[RendererOption::LightFrustum] = false;
 
 	// Initialize Grid
-	gridVert     = loadShaderModule( ctx, "../shaders/grid.vert" );
-	gridFrag     = loadShaderModule( ctx, "../shaders/grid.frag" );
-	gridPipeline = ctx->createRenderPipeline({
-		.smVert = gridVert,
-		.smFrag = gridFrag,
-		.color  = { {
-			.format            = ctx->getSwapchainFormat(),
-			.blendEnabled      = true,
-			.srcRGBBlendFactor = lvk::BlendFactor_SrcAlpha,
-			.dstRGBBlendFactor = lvk::BlendFactor_OneMinusSrcAlpha
-		} },
-		.depthFormat = getDepthFormat()
-	});
-	LVK_ASSERT( gridPipeline.valid() );
+	gridPipeline = new Pipeline( ctx, {}, ctx->getSwapchainFormat(), getDepthFormat(), 1,
+		loadShaderModule( ctx, "../shaders/grid.vert"),
+		loadShaderModule( ctx, "../shaders/grid.frag") );
 
 	// Initialize Skybox
 	skyboxTexture    = loadTexture( ctx, skyboxTexFilename.c_str(), lvk::TextureType_Cube );
@@ -125,15 +115,13 @@ mr::App::App( std::string skyboxTexFilename, std::string skyboxIrrFilename ) {
 }
 
 mr::App::~App() {
+	delete gridPipeline;
+
 	skyboxPipeline   = nullptr;
 	skyboxVert       = nullptr;
 	skyboxFrag       = nullptr;
 	skyboxTexture    = nullptr;
 	skyboxIrradiance = nullptr;
-
-	gridPipeline = nullptr;
-	gridVert     = nullptr;
-	gridFrag     = nullptr;
 
 	imgui        = nullptr;
 	depthTexture = nullptr;
@@ -182,7 +170,7 @@ void mr::App::drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj ) {
     };
 
     buf.cmdPushDebugGroupLabel( "Grid", 0xFFFF00FF );
-        buf.cmdBindRenderPipeline( gridPipeline );
+        buf.cmdBindRenderPipeline( gridPipeline->_pipeline );
         buf.cmdBindDepthState( {} );
         buf.cmdPushConstants( gridPC );
         buf.cmdDraw( 6 );

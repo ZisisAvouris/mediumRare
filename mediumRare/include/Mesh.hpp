@@ -13,6 +13,7 @@
 #include <shared/Scene/Scene.h>
 #include <shared/UtilsGLTF.h>
 #include "types.hpp"
+#include "Pipeline.hpp"
 
 struct DrawIndexedIndirectCommand {
 	u32 count;
@@ -20,6 +21,36 @@ struct DrawIndexedIndirectCommand {
 	u32 firstIndex;
 	s32 baseVertex;
 	u32 baseInstance;
+};
+
+class IndirectBuffer final {
+public:
+	IndirectBuffer( const std::unique_ptr<lvk::IContext> &ctx, size_t maxDrawCommands, lvk::StorageType storage = lvk::StorageType_Device )
+		: _ctx( ctx ), _drawCommands( maxDrawCommands ) {
+		
+		_bufferIndirect = ctx->createBuffer({
+			.usage     = lvk::BufferUsageBits_Indirect | lvk::BufferUsageBits_Storage,
+			.storage   = storage,
+			.size      = sizeof(DrawIndexedIndirectCommand) * maxDrawCommands + sizeof(u32),
+			.debugName = "Buffer: indirect" 
+		});
+	}
+
+	void uploadIndirectBuffer() {
+		const u32 numCommands = _drawCommands.size();
+
+		_ctx->upload( _bufferIndirect, &numCommands, sizeof(u32) );
+		_ctx->upload( _bufferIndirect, _drawCommands.data(), sizeof(VkDrawIndexedIndirectCommand) * numCommands, sizeof(u32) );
+	}
+
+	DrawIndexedIndirectCommand *getDrawIndexedIndirectCommand() const {
+		LVK_ASSERT( _ctx->getMappedPtr(_bufferIndirect) );
+		return std::launder( reinterpret_cast<DrawIndexedIndirectCommand*>( _ctx->getMappedPtr(_bufferIndirect) + sizeof(u32)));
+	}
+
+	const std::unique_ptr<lvk::IContext> &_ctx;
+	lvk::Holder<lvk::BufferHandle> _bufferIndirect;
+	std::vector<DrawIndexedIndirectCommand> _drawCommands;
 };
 
 struct DrawData {
@@ -61,8 +92,9 @@ GLTFMaterialDataGPU convertToGPUMaterial( const std::unique_ptr<lvk::IContext>& 
 
 class VkMesh final {
 public:
-	VkMesh( const std::unique_ptr<lvk::IContext> &ctx, const MeshData &meshData, const Scene &scene, lvk::Format colorFormat, lvk::Format depthFormat, u32 numSamples = 1 )
-		: ctx( ctx ), numIndices_( (u32)meshData.indexData.size() ), numMeshes_( (u32)meshData.meshes.size() ), textureFiles_( meshData.textureFiles ) {
+	VkMesh( const std::unique_ptr<lvk::IContext> &ctx, const MeshData &meshData, const Scene &scene, lvk::StorageType indirectStorage = lvk::StorageType_Device )
+		: ctx( ctx ), numIndices_( (u32)meshData.indexData.size() ), numMeshes_( (u32)meshData.meshes.size() ),
+		bufferIndirect_( ctx, meshData.getMeshFileHeader().meshCount, indirectStorage), textureFiles_( meshData.textureFiles ) {
 		
 		const MeshFileHeader header = meshData.getMeshFileHeader();
 		const u32 *indices          = meshData.indexData.data();
@@ -109,10 +141,10 @@ public:
 
 		const u32 numCommands = header.meshCount;
 
-		drawCommands.resize( numCommands );
+		bufferIndirect_._drawCommands.resize( numCommands );
 		drawData.resize( numCommands );
 
-		DrawIndexedIndirectCommand *cmd = drawCommands.data();
+		DrawIndexedIndirectCommand *cmd = bufferIndirect_._drawCommands.data();
 		DrawData * dd = drawData.data();
 
 		LVK_ASSERT( scene.meshForNode.size() == numCommands );
@@ -134,14 +166,8 @@ public:
 				.materialId  = mesh.materialID
 			};
 		}
-
-		bufferIndirect_ = ctx->createBuffer({
-			.usage     = lvk::BufferUsageBits_Indirect,
-			.storage   = lvk::StorageType_Device,
-			.size      = sizeof(DrawIndexedIndirectCommand) * numCommands,
-			.data      = drawCommands.data(),
-			.debugName = "Buffer: indirect"
-		});
+		bufferIndirect_.uploadIndirectBuffer();
+		
 		bufferDrawData_ = ctx->createBuffer({
 			.usage     = lvk::BufferUsageBits_Storage,
 			.storage   = lvk::StorageType_Device,
@@ -149,55 +175,48 @@ public:
 			.data      = drawData.data(),
 			.debugName = "Buffer: drawData"
 		});
-
-		vert_ = loadShaderModule( ctx, "../shaders/main.vert" );
-		frag_ = loadShaderModule( ctx, "../shaders/main.frag" );
-
-		pipeline_ = ctx->createRenderPipeline({
-			.vertexInput      = meshData.streams,
-			.smVert           = vert_,
-			.smFrag           = frag_,
-			.color            = { { .format = colorFormat } },
-			.depthFormat      = depthFormat,
-			.cullMode         = lvk::CullMode_None,
-			.samplesCount     = numSamples,
-			.minSampleShading = numSamples > 1 ? 0.25f : 0.0f,
-		});
-		LVK_ASSERT( pipeline_.valid() );
-
-		pipelineWireframe_ = ctx->createRenderPipeline({
-			.vertexInput  = meshData.streams,
-			.smVert       = vert_,
-			.smFrag       = frag_,
-			.color        = { { .format = colorFormat } },
-			.depthFormat  = depthFormat,
-			.cullMode     = lvk::CullMode_None,
-			.polygonMode  = lvk::PolygonMode_Line,
-			.samplesCount = numSamples,
-		});
-		LVK_ASSERT( pipelineWireframe_.valid() );
 	}
 
-	void draw( lvk::ICommandBuffer &buf, const mat4 &view, const mat4 &proj, bool wireframe = false ) const {
+	void draw( lvk::ICommandBuffer &buf, const Pipeline &pipeline, const mat4 &view, const mat4 &proj, u32 skyboxIrradianceIndex = 0,
+		bool wireframe = false, const IndirectBuffer *indirectBuffer = nullptr ) const {
+	
 		buf.cmdBindIndexBuffer( bufferIndices_, lvk::IndexFormat_UI32 );
 		buf.cmdBindVertexBuffer( 0, bufferVertices_ );
-		buf.cmdBindRenderPipeline( wireframe ? pipelineWireframe_ : pipeline_ );
+		buf.cmdBindRenderPipeline( wireframe ? pipeline._pipelineWireframe : pipeline._pipeline );
 		buf.cmdBindDepthState( { .compareOp = lvk::CompareOp_Less, .isDepthWriteEnabled = true } );
-
 		const struct {
 			mat4 viewProj;
 			u64  bufferTransforms;
 			u64  bufferDrawData;
 			u64  bufferMaterials;
+			u32  skyboxIrradiance;
 		} pc = {
 			.viewProj         = proj * view,
-			.bufferTransforms = ctx->gpuAddress(bufferTransforms_),
-			.bufferDrawData   = ctx->gpuAddress(bufferDrawData_),
-			.bufferMaterials  = ctx->gpuAddress(bufferMaterials_)
+			.bufferTransforms = ctx->gpuAddress( bufferTransforms_ ),
+			.bufferDrawData   = ctx->gpuAddress( bufferDrawData_ ),
+			.bufferMaterials  = ctx->gpuAddress( bufferMaterials_ ),
+			.skyboxIrradiance = skyboxIrradianceIndex
 		};
-		static_assert(sizeof(pc) <= 128);
-		buf.cmdPushConstants(pc);
-		buf.cmdDrawIndexedIndirect(bufferIndirect_, 0, numMeshes_);
+		static_assert( sizeof(pc) <= 128 );
+		buf.cmdPushConstants( pc );
+		if ( !indirectBuffer )
+			indirectBuffer = &bufferIndirect_;
+		buf.cmdDrawIndexedIndirectCount( indirectBuffer->_bufferIndirect, sizeof(u32), indirectBuffer->_bufferIndirect,
+			0, numMeshes_, sizeof(DrawIndexedIndirectCommand) );
+	}
+
+	void draw( lvk::ICommandBuffer &buf, const Pipeline &pipeline, const void *pc, size_t pcSize, const lvk::DepthState depthState, bool wireframe = false,
+		const IndirectBuffer *indirectBuffer = nullptr ) const {
+		
+		buf.cmdBindIndexBuffer( bufferIndices_, lvk::IndexFormat_UI32 );
+		buf.cmdBindVertexBuffer( 0, bufferVertices_ );
+		buf.cmdBindRenderPipeline( wireframe ? pipeline._pipelineWireframe : pipeline._pipeline );
+		buf.cmdBindDepthState( depthState );
+		buf.cmdPushConstants( pc, pcSize );
+		if ( !indirectBuffer )
+			indirectBuffer = &bufferIndirect_;
+		buf.cmdDrawIndexedIndirectCount(indirectBuffer->_bufferIndirect, sizeof(u32), indirectBuffer->_bufferIndirect,
+			0, numMeshes_, sizeof(DrawIndexedIndirectCommand));
 	}
 
 	void updateGlobalTransforms(const mat4* data, size_t numMatrices) const {
@@ -218,16 +237,11 @@ public:
 
 	lvk::Holder<lvk::BufferHandle> bufferIndices_;
 	lvk::Holder<lvk::BufferHandle> bufferVertices_;
-	lvk::Holder<lvk::BufferHandle> bufferIndirect_;
 	lvk::Holder<lvk::BufferHandle> bufferTransforms_;
 	lvk::Holder<lvk::BufferHandle> bufferDrawData_;
 	lvk::Holder<lvk::BufferHandle> bufferMaterials_;
 
-	lvk::Holder<lvk::ShaderModuleHandle> vert_;
-	lvk::Holder<lvk::ShaderModuleHandle> frag_;
-
-	lvk::Holder<lvk::RenderPipelineHandle> pipeline_;
-	lvk::Holder<lvk::RenderPipelineHandle> pipelineWireframe_;
+	IndirectBuffer bufferIndirect_;
 
 	TextureFiles textureFiles_;
 	mutable TextureCache textureCache_;

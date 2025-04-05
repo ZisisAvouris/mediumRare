@@ -54,6 +54,7 @@ ImVec2 mr::ImGuiRenderOptionsComponent( std::span<bool> options, const ImVec2 po
 		ImGui::Checkbox( "Draw Wireframe",      &options[RendererOption::Wireframe] );
 		ImGui::Checkbox( "Draw Skybox",         &options[RendererOption::Skybox] );
 		ImGui::Checkbox( "Draw Bounding Boxes", &options[RendererOption::BoundingBox] );
+		ImGui::Checkbox( "Draw Light Frustum",  &options[RendererOption::LightFrustum] );
 
 		const ImVec2 componentSize = ImGui::GetItemRectMax();
 	ImGui::End();
@@ -229,4 +230,22 @@ ImVec2 mr::ImGuiEditNodeComponent( Scene &scene, MeshData &meshData, const mat4 
 	}
 	ImGui::End();
 	return ImVec2();
+}
+
+ImVec2 mr::ImGuiLightControlsComponent( LightParams &lightParams, u32 shadowMapIndex, const ImVec2 pos ) {
+	ImGui::SetNextWindowPos( pos );
+	ImGui::Begin( "Light", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
+		ImGui::SliderFloat( "Depth Bias Constant", &lightParams.depthBiasConst,    0.0f,   5.0f );
+		ImGui::SliderFloat( "Depth Bias Slope",    &lightParams.depthBiasSlope,    0.0f,   5.0f );
+		ImGui::SliderFloat( "Theta",               &lightParams.theta,          -180.0f, 180.0f );
+		ImGui::SliderFloat( "Phi",                 &lightParams.phi,             -85.0f,  85.0f );
+
+		ImGui::Separator();
+		if ( ImGui::CollapsingHeader( "Preview Shadow Map" ) ) {
+			ImGui::Image( shadowMapIndex, ImVec2( 512, 512 ) );
+		}
+
+		const ImVec2 componentSize = ImGui::GetItemRectMax();
+	ImGui::End();
+	return componentSize;
 }

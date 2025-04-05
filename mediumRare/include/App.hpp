@@ -2,6 +2,7 @@
 
 #include "types.hpp"
 #include "RendererOptions.hpp"
+#include "Pipeline.hpp"
 
 #include <lvk/HelpersImGui.h>
 #include <lvk/LVK.h>
@@ -70,11 +71,9 @@ namespace mr {
 		std::vector<GLFWmousebuttonfun> mouseButtonCallbacks;
 		std::vector<GLFWkeyfun>         keyCallbacks;
 
-	private:
+	public:
 		// Grid
-		lvk::Holder<lvk::ShaderModuleHandle>   gridVert;
-		lvk::Holder<lvk::ShaderModuleHandle>   gridFrag;
-		lvk::Holder<lvk::RenderPipelineHandle> gridPipeline;
+		Pipeline							   *gridPipeline;
 
 		// Skybox
 		lvk::Holder<lvk::TextureHandle>        skyboxTexture;

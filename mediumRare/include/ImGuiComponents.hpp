@@ -26,4 +26,6 @@ namespace mr {
 	bool __editTransformUI( const mat4 &view, const mat4 &proj, mat4 &matrix );
 	bool __editMaterialUI( Scene &scene, MeshData &meshData, s32 node, s32 &outUpdateMaterialIndex, const TextureCache &textureCache );
 	ImVec2 ImGuiEditNodeComponent( Scene &scene, MeshData &meshData, const mat4 &view, const mat4 &proj, s32 node, s32 &outUpdateMaterialIndex, const TextureCache &textureCache );
+
+	ImVec2 ImGuiLightControlsComponent( LightParams &lightParams, u32 shadowMapIndex, const ImVec2 pos = { 10, 10 } );
 }
