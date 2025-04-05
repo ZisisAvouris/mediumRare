@@ -55,6 +55,14 @@ ImVec2 mr::ImGuiRenderOptionsComponent( std::span<bool> options, const ImVec2 po
 		ImGui::Checkbox( "Draw Skybox",         &options[RendererOption::Skybox] );
 		ImGui::Checkbox( "Draw Bounding Boxes", &options[RendererOption::BoundingBox] );
 		ImGui::Checkbox( "Draw Light Frustum",  &options[RendererOption::LightFrustum] );
+		
+		const char* aaOptions[] = { "No AA", "MSAAx2", "MSAAx4", "MSAAx8", "MSAAx16" };
+		static s32 currentAA = 0;
+		if ( ImGui::Combo( "Anti-Aliasing", &currentAA, aaOptions, IM_ARRAYSIZE(aaOptions) ) ) {
+			for ( s32 i = RendererOption::NoAA; i <= RendererOption::MSAAx16; ++i )
+				options[i] = false;
+			options[currentAA + RendererOption::NoAA] = true;
+		}
 
 		const ImVec2 componentSize = ImGui::GetItemRectMax();
 	ImGui::End();

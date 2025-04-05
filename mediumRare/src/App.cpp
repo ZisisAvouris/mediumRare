@@ -88,11 +88,10 @@ mr::App::App( std::string skyboxTexFilename, std::string skyboxIrrFilename ) {
 		}
 	});
 
-	options[RendererOption::Grid]         = false;
-	options[RendererOption::Wireframe]    = false;
-	options[RendererOption::Skybox]       = true;
-	options[RendererOption::BoundingBox]  = false;
-	options[RendererOption::LightFrustum] = false;
+	// Default Render Options
+	std::fill( &options[0], &options[RendererOption::MAX], false );
+	options[RendererOption::Skybox] = true;
+	options[RendererOption::NoAA]   = true;
 
 	// Initialize Grid
 	gridPipeline = new Pipeline( ctx, {}, ctx->getSwapchainFormat(), getDepthFormat(), 1,
@@ -159,6 +158,15 @@ void mr::App::drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj ) {
 	if ( !options[RendererOption::Grid] )
 		return;
 
+	static u32 lastSamplesCount = 1;
+	if ( lastSamplesCount != _numSamples ) { // TODO: this is ugly, remove the Pipeline abstraction
+		delete gridPipeline;
+		gridPipeline = new Pipeline( ctx, {}, ctx->getSwapchainFormat(), getDepthFormat(), _numSamples,
+			loadShaderModule( ctx, "../shaders/grid.vert"),
+			loadShaderModule( ctx, "../shaders/grid.frag") );
+		lastSamplesCount = _numSamples;
+	}
+
 	const struct {
         mat4 mvp;
         vec4 cameraPos;
@@ -177,9 +185,23 @@ void mr::App::drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj ) {
     buf.cmdPopDebugGroupLabel();
 }
 
-void mr::App::drawSkybox( lvk::ICommandBuffer &buf, const mat4 &view, const mat4 &proj ) const {
+void mr::App::drawSkybox( lvk::ICommandBuffer &buf, const mat4 &view, const mat4 &proj ) {
 	if ( !options[RendererOption::Skybox] )
 		return;
+
+	static u32 lastSamplesCount = 1;
+	if ( lastSamplesCount != _numSamples ) {
+		skyboxPipeline = nullptr;
+		skyboxPipeline = ctx->createRenderPipeline({
+			.smVert       = skyboxVert,
+			.smFrag       = skyboxFrag,
+			.color        = { { .format = ctx->getSwapchainFormat() } },
+			.depthFormat  = getDepthFormat(),
+			.samplesCount = _numSamples
+		});
+		LVK_ASSERT( skyboxPipeline.valid() );
+		lastSamplesCount = _numSamples;
+	}
 
 	const struct {
 		mat4 mvp;

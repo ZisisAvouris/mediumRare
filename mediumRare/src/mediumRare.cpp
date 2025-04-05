@@ -69,7 +69,25 @@ int main( void ) {
 
     LineCanvas3D canvas3d;
     std::unique_ptr<lvk::IContext> ctx( app.ctx.get() );
-    s32 selectedNode = -1;
+    s32 selectedNode = -1, prevNumSamples = 1;
+
+    const lvk::Dimensions fbSize = ctx->getDimensions( ctx->getCurrentSwapchainTexture() );
+    lvk::Holder<lvk::TextureHandle> msaaColor = ctx->createTexture({
+        .format     = ctx->getSwapchainFormat(),
+        .dimensions = fbSize,
+        .numSamples = app._numSamples,
+        .usage      = lvk::TextureUsageBits_Attachment,
+        .storage    = lvk::StorageType_Memoryless,
+        .debugName  = "MSAA: Color"
+    });
+    lvk::Holder<lvk::TextureHandle> msaaDepth = ctx->createTexture({
+        .format     = app.getDepthFormat(),
+        .dimensions = fbSize,
+        .numSamples = app._numSamples,
+        .usage      = lvk::TextureUsageBits_Attachment,
+        .storage    = lvk::StorageType_Memoryless,
+        .debugName  = "MSAA: Depth"
+    });
 
     LightParams light, prevLight = { .depthBiasConst = 0 };
     lvk::Holder<lvk::TextureHandle> shadowMap = ctx->createTexture({
@@ -96,9 +114,9 @@ int main( void ) {
 
     const VkMesh mesh( ctx, meshData, scene );
     Pipeline shadowPipeline( ctx, meshData.streams, lvk::Format_Invalid, ctx->getFormat(shadowMap), 1,
-        loadShaderModule( ctx, "../shaders/shadow.vert" ),
-        loadShaderModule( ctx, "../shaders/shadow.frag" ), lvk::CullMode_None ); // Experiment with backface culling here, it seems it makes no difference for bistro
-    Pipeline opaquePipeline( ctx, meshData.streams, ctx->getSwapchainFormat(), app.getDepthFormat(), 1,
+        loadShaderModule( ctx, "../shaders/shadow.vert"),
+        loadShaderModule( ctx, "../shaders/shadow.frag"), lvk::CullMode_None); // Experiment with backface culling here, it seems it makes no difference for bistro
+    Pipeline *opaquePipeline = new Pipeline( ctx, meshData.streams, ctx->getSwapchainFormat(), app.getDepthFormat(), app._numSamples,
         loadShaderModule( ctx, "../shaders/main.vert" ),
         loadShaderModule( ctx, "../shaders/main.frag" ), lvk::CullMode_Back );
 
@@ -119,14 +137,8 @@ int main( void ) {
                                  0.5, 0.5, 0.0, 1.0 );
 
     app.run( [&]( uint32_t width, uint32_t height, float aspectRatio, float deltaSeconds ) {
-        const lvk::RenderPass renderPass = {
-            .color = { { .loadOp = lvk::LoadOp_Clear, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } },
-            .depth = {   .loadOp = lvk::LoadOp_Clear, .clearDepth = 1.0f }
-        };
-        const lvk::Framebuffer framebuffer = {
-            .color        = { { .texture = ctx->getCurrentSwapchainTexture() } },
-            .depthStencil =   { .texture = app.getDepthTexture() }
-        };
+        
+        const lvk::Framebuffer fbMain = { .color = { { .texture = ctx->getCurrentSwapchainTexture() } } };
 
         const mat4 view = app.camera.getViewMatrix();
         const mat4 proj = glm::perspective( 45.0f, aspectRatio, 0.01f, 200.0f );
@@ -163,7 +175,21 @@ int main( void ) {
                 });
             }
 
-            buf.cmdBeginRendering( renderPass, framebuffer, { .textures = lvk::TextureHandle(shadowMap) } );
+            const lvk::RenderPass renderPass = {
+                .color = { { .loadOp = lvk::LoadOp_Clear,
+                             .storeOp = ( app._numSamples > 1 ) ? lvk::StoreOp_MsaaResolve : lvk::StoreOp_Store,
+                             .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f }
+                } },
+                .depth = {   .loadOp = lvk::LoadOp_Clear, .clearDepth = 1.0f }
+            };
+            const lvk::Framebuffer offscreen = {
+                .color = { {
+                    .texture        = ( app._numSamples > 1 ) ? msaaColor : ctx->getCurrentSwapchainTexture(),
+                    .resolveTexture = ( app._numSamples > 1 ) ? ctx->getCurrentSwapchainTexture() : lvk::TextureHandle{}
+                } },
+                .depthStencil = { .texture = ( app._numSamples > 1 ) ? msaaDepth : app.getDepthTexture() }
+            };
+            buf.cmdBeginRendering( renderPass, offscreen, { .textures = lvk::TextureHandle(shadowMap) } );
                 app.drawSkybox( buf, view, proj );
                 app.drawGrid( buf, proj );
 
@@ -184,11 +210,10 @@ int main( void ) {
                         .skyboxIrradiance = app.skyboxIrradiance.index()
                     };
                     static_assert( sizeof(pc) <= 128 );
-                    mesh.draw( buf, opaquePipeline, &pc, sizeof(pc), lvk::DepthState {.compareOp = lvk::CompareOp_Less, .isDepthWriteEnabled = true},
+                    mesh.draw( buf, *opaquePipeline, &pc, sizeof(pc), lvk::DepthState {.compareOp = lvk::CompareOp_Less, .isDepthWriteEnabled = true},
                         app.options[mr::RendererOption::Wireframe] );
                 buf.cmdPopDebugGroupLabel();
 
-            app.imgui->beginFrame( framebuffer );
                 canvas3d.clear();
                 canvas3d.setMatrix( proj * view );
 
@@ -199,14 +224,25 @@ int main( void ) {
                         canvas3d.box( scene.globalTransform[p.first], box, vec4(1, 0, 0, 1) );
                     }
                 }
+                if ( selectedNode > -1 && scene.hierarchy[selectedNode].firstChild < 0 ) {
+                    const u32 meshId      = scene.meshForNode[selectedNode];
+                    const BoundingBox box = meshData.boxes[meshId];
+                    canvas3d.box( scene.globalTransform[selectedNode], box, vec4(0, 1, 0, 1) );
+                }
 
                 if ( app.options[mr::RendererOption::LightFrustum] ) {
                     canvas3d.frustum( lightView, lightProj, vec4(1, 1, 0, 1) );
                 }
+                canvas3d.render( *ctx.get(), offscreen, buf, app._numSamples );
+            buf.cmdEndRendering();
 
+            buf.cmdBeginRendering( lvk::RenderPass {
+                .color = { { .loadOp = lvk::LoadOp_Load, .storeOp = lvk::StoreOp_Store, .clearColor =  { 1.0f, 1.0f, 1.0f, 1.0f } } } },
+                fbMain
+            );
+            app.imgui->beginFrame( fbMain );
                 const ImVec2 statsSize         = mr::ImGuiFPSComponent( app.fpsCounter.getFPS() );
                 const ImVec2 camControlSize    = mr::ImGuiCameraControlsComponent( app.cameraPos, app.cameraAngles, app.cameraType, { 10.0f, statsSize.y + mr::COMPONENT_PADDING } );
-                const ImVec2 renderOptionsSize = mr::ImGuiRenderOptionsComponent( app.options, { 10.0f, camControlSize.y + mr::COMPONENT_PADDING } );
                 if ( app.cameraType == false ) {
                     app.camera = Camera( app.fpsPositioner );
                 } else {
@@ -214,17 +250,42 @@ int main( void ) {
                     app.moveToPositioner.setDesiredAngles( app.cameraAngles );
                     app.camera = Camera( app.moveToPositioner );
                 }
+                const ImVec2 renderOptionsSize = mr::ImGuiRenderOptionsComponent( app.options, { 10.0f, camControlSize.y + mr::COMPONENT_PADDING } );
+                u32 selectedAA = std::find( &app.options[mr::RendererOption::NoAA], &app.options[mr::RendererOption::MSAAx16], true ) - app.options;
+                app._numSamples = 1 << ( selectedAA - mr::RendererOption::NoAA );
+                if ( prevNumSamples != app._numSamples ) {
+                    msaaColor = nullptr;
+                    msaaDepth = nullptr;
+
+                    msaaColor = ctx->createTexture({
+                        .format     = ctx->getSwapchainFormat(),
+                        .dimensions = fbSize,
+                        .numSamples = app._numSamples,
+                        .usage      = lvk::TextureUsageBits_Attachment,
+                        .storage    = lvk::StorageType_Memoryless,
+                        .debugName  = "MSAA: Color"
+                    });
+                    msaaDepth = ctx->createTexture({
+                        .format     = app.getDepthFormat(),
+                        .dimensions = fbSize,
+                        .numSamples = app._numSamples,
+                        .usage      = lvk::TextureUsageBits_Attachment,
+                        .storage    = lvk::StorageType_Memoryless,
+                        .debugName  = "MSAA: Depth"
+                    });
+
+                    delete opaquePipeline;
+                    opaquePipeline = new Pipeline( ctx, meshData.streams, ctx->getSwapchainFormat(), app.getDepthFormat(), app._numSamples,
+                        loadShaderModule( ctx, "../shaders/main.vert" ),
+                        loadShaderModule( ctx, "../shaders/main.frag" ), lvk::CullMode_Back );
+
+                    prevNumSamples = app._numSamples;
+                }
 
                 const ImVec2 lightControlsSize = mr::ImGuiLightControlsComponent( light, shadowMap.index(), { 10.0f, renderOptionsSize.y + mr::COMPONENT_PADDING } );
 
                 const ImVec2 sceneGraphSize    = mr::ImGuiSceneGraphComponent( scene, selectedNode, { 10.0f, lightControlsSize.y + mr::COMPONENT_PADDING } );
-                if ( selectedNode > -1 && scene.hierarchy[selectedNode].firstChild < 0 ) {
-                    const u32 meshId      = scene.meshForNode[selectedNode];
-                    const BoundingBox box = meshData.boxes[meshId];
-                    canvas3d.box( scene.globalTransform[selectedNode], box, vec4(0, 1, 0, 1) );
-                }
                 mr::ImGuiEditNodeComponent( scene, meshData, view, proj, selectedNode, updateMaterialIndex, mesh.textureCache_ );
-                canvas3d.render( *ctx.get(), framebuffer, buf );
             app.imgui->endFrame( buf );
             buf.cmdEndRendering();
         }
@@ -237,6 +298,8 @@ int main( void ) {
             mesh.updateMaterial( meshData.materials.data(), updateMaterialIndex );
         } 
     });
+
+    delete opaquePipeline;
 
     ctx.release();
     return 0;

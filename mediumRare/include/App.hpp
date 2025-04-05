@@ -43,7 +43,7 @@ namespace mr {
 		void addKeyCallback( GLFWkeyfun cb )                 { keyCallbacks.push_back(cb); }
 
 		void drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj );
-		void drawSkybox( lvk::ICommandBuffer &buf, const mat4 &view, const mat4 &proj ) const;
+		void drawSkybox( lvk::ICommandBuffer &buf, const mat4 &view, const mat4 &proj );
 
 	public:
 		GLFWwindow                          *window = nullptr;
@@ -66,6 +66,8 @@ namespace mr {
 		bool cameraType   = false; // TODO: change this to an enum
 
 		bool options[RendererOption::MAX];
+
+		u32 _numSamples = 1;
 
 	protected:
 		std::vector<GLFWmousebuttonfun> mouseButtonCallbacks;

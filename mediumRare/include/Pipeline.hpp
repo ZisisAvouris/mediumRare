@@ -7,7 +7,7 @@ class Pipeline final {
 public:
 	Pipeline( const std::unique_ptr<lvk::IContext> &ctx, const lvk::VertexInput &streams, lvk::Format colorFormat, lvk::Format depthFormat, u32 numSamples = 1,
 		lvk::Holder<lvk::ShaderModuleHandle> &&vert = {},
-		lvk::Holder<lvk::ShaderModuleHandle> &&frag = {}, lvk::CullMode cullMode = lvk::CullMode_None) {
+		lvk::Holder<lvk::ShaderModuleHandle> &&frag = {}, lvk::CullMode cullMode = lvk::CullMode_None ) {
 	
 		if ( !vert.valid() || !frag.valid() )
 			exit( 0xF0 );
