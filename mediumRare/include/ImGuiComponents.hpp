@@ -15,6 +15,8 @@ using TextureCache = std::vector<lvk::Holder<lvk::TextureHandle>>;
 namespace mr {
 	static constexpr float COMPONENT_PADDING = 20.0f;
 
+	f32 __computeMaxItemWidth( const char **items, size_t itemsLength );
+
 	ImVec2 ImGuiFPSComponent( const float fps, const ImVec2 pos = { 10, 10 } );
 	ImVec2 ImGuiCameraControlsComponent( glm::vec3 &cameraPos, glm::vec3 &cameraAngles, bool &changedCameraType, const ImVec2 pos = { 10, 10 } );
 

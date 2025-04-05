@@ -1,5 +1,14 @@
 #include "../include/ImGuiComponents.hpp"
 
+f32 mr::__computeMaxItemWidth( const char **items, size_t itemsLength ) {
+	f32 maxWidth = 0.0f;
+	for ( s32 i = 0; i != itemsLength; ++i ) {
+		f32 width = ImGui::CalcTextSize( items[i] ).x;
+		maxWidth  = std::max<f32>( maxWidth, width );
+	}
+	return maxWidth;
+}
+
 ImVec2 mr::ImGuiFPSComponent( const float fps, const ImVec2 pos ) {
 	ImGui::SetNextWindowPos( pos );
 	ImGui::Begin( "Stats:", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
@@ -17,6 +26,9 @@ ImVec2 mr::ImGuiCameraControlsComponent( glm::vec3 &cameraPos, glm::vec3 &camera
 
 	ImGui::SetNextWindowPos( pos );
 	ImGui::Begin( "Camera Controls:", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
+		static f32 dropDownWidth = __computeMaxItemWidth( comboBoxItems, IM_ARRAYSIZE(comboBoxItems)) + ImGui::GetStyle().FramePadding.x * 2
+				+ ImGui::GetStyle().ItemInnerSpacing.x + ImGui::GetFrameHeight();
+		ImGui::SetNextItemWidth( dropDownWidth );
 		if ( ImGui::BeginCombo( "##combo", currentComboBoxItem ) ) {
 			for ( int n = 0; n < IM_ARRAYSIZE( comboBoxItems ); ++n ) {
 				const bool isSelected = currentComboBoxItem == comboBoxItems[n];
@@ -58,6 +70,10 @@ ImVec2 mr::ImGuiRenderOptionsComponent( std::span<bool> options, const ImVec2 po
 		
 		const char* aaOptions[] = { "No AA", "MSAAx2", "MSAAx4", "MSAAx8", "MSAAx16" };
 		static s32 currentAA = 0;
+
+		static f32 dropDownWidth = __computeMaxItemWidth( aaOptions, IM_ARRAYSIZE(aaOptions) ) + ImGui::GetStyle().FramePadding.x * 2
+			+ ImGui::GetStyle().ItemInnerSpacing.x + ImGui::GetFrameHeight();
+		ImGui::SetNextItemWidth( dropDownWidth );
 		if ( ImGui::Combo( "Anti-Aliasing", &currentAA, aaOptions, IM_ARRAYSIZE(aaOptions) ) ) {
 			for ( s32 i = RendererOption::NoAA; i <= RendererOption::MSAAx16; ++i )
 				options[i] = false;
@@ -241,12 +257,19 @@ ImVec2 mr::ImGuiEditNodeComponent( Scene &scene, MeshData &meshData, const mat4 
 }
 
 ImVec2 mr::ImGuiLightControlsComponent( LightParams &lightParams, u32 shadowMapIndex, const ImVec2 pos ) {
+	const char *items[] = { "Depth Bias Constant", "Depth Bias Slope", "Theta", "Phi" };
+
 	ImGui::SetNextWindowPos( pos );
 	ImGui::Begin( "Light", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
-		ImGui::SliderFloat( "Depth Bias Constant", &lightParams.depthBiasConst,    0.0f,   5.0f );
-		ImGui::SliderFloat( "Depth Bias Slope",    &lightParams.depthBiasSlope,    0.0f,   5.0f );
-		ImGui::SliderFloat( "Theta",               &lightParams.theta,          -180.0f, 180.0f );
-		ImGui::SliderFloat( "Phi",                 &lightParams.phi,             -85.0f,  85.0f );
+
+		static f32 dropDownWidth = __computeMaxItemWidth( items, IM_ARRAYSIZE(items) ) + ImGui::GetStyle().FramePadding.x * 2
+				+ ImGui::GetStyle().ItemInnerSpacing.x + ImGui::GetFrameHeight();
+		ImGui::PushItemWidth( dropDownWidth );
+			ImGui::SliderFloat( items[0], &lightParams.depthBiasConst,    0.0f,   5.0f );
+			ImGui::SliderFloat( items[1], &lightParams.depthBiasSlope,    0.0f,   5.0f );
+			ImGui::SliderFloat( items[2], &lightParams.theta,          -180.0f, 180.0f );
+			ImGui::SliderFloat( items[3], &lightParams.phi,             -85.0f,  85.0f );
+		ImGui::PopItemWidth();
 
 		ImGui::Separator();
 		if ( ImGui::CollapsingHeader( "Preview Shadow Map" ) ) {
