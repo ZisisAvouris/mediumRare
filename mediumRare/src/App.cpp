@@ -90,8 +90,10 @@ mr::App::App( std::string skyboxTexFilename, std::string skyboxIrrFilename ) {
 
 	// Default Render Options
 	std::fill( &options[0], &options[RendererOption::MAX], false );
-	options[RendererOption::Skybox] = true;
-	options[RendererOption::NoAA]   = true;
+	options[RendererOption::Skybox]   = true;
+	options[RendererOption::NoAA]     = true;
+	options[RendererOption::SSAO]	  = true;
+	options[RendererOption::BlurSSAO] = true;
 
 	// Initialize Grid
 	gridPipeline = new Pipeline( ctx, {}, ctx->getSwapchainFormat(), getDepthFormat(), 1,

@@ -80,6 +80,9 @@ ImVec2 mr::ImGuiRenderOptionsComponent( std::span<bool> options, const ImVec2 po
 			options[currentAA + RendererOption::NoAA] = true;
 		}
 
+		ImGui::Checkbox( "Enable SSAO", &options[RendererOption::SSAO] );
+		ImGui::Checkbox( "Blur SSAO",   &options[RendererOption::BlurSSAO] );
+
 		const ImVec2 componentSize = ImGui::GetItemRectMax();
 	ImGui::End();
 	return componentSize;
@@ -276,6 +279,33 @@ ImVec2 mr::ImGuiLightControlsComponent( LightParams &lightParams, u32 shadowMapI
 			ImGui::Image( shadowMapIndex, ImVec2( 512, 512 ) );
 		}
 
+		const ImVec2 componentSize = ImGui::GetItemRectMax();
+	ImGui::End();
+	return componentSize;
+}
+
+ImVec2 mr::ImGuiSSAOControlsComponent( SSAOpc &pc, CombinePC &comb, s32 &blurPasses, f32 &depthThreshold, u32 ssaoTextureIndex, const ImVec2 pos ) {
+	
+	ImGui::SetNextWindowPos( pos );
+	ImGui::Begin( "SSAO Controls", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
+
+		ImGui::Text( "SSAO Blur Controls" );
+			ImGui::SliderFloat( "Blur Depth Threshold", &depthThreshold, 0.0f, 50.0f );
+			ImGui::SliderInt( "Blur Num Passes", &blurPasses, 1, 5 );
+		ImGui::Separator();
+		ImGui::Text( "SSAO Controls" );
+			ImGui::SliderFloat( "SSAO radius",            &pc.radius,   0.01f, 0.1f );
+			ImGui::SliderFloat( "SSAO attenuation scale", &pc.attScale,  0.5f, 1.5f );
+			ImGui::SliderFloat( "SSAO distance scale",    &pc.distScale, 0.0f, 2.0f );
+		ImGui::Separator();
+			if ( ImGui::CollapsingHeader( "Preview SSAO Texture" ) ) {
+				ImGui::Image( ssaoTextureIndex, ImVec2( 512, 512 ) );
+			}
+		ImGui::Separator();
+		ImGui::Text( "SSAO Combine Controls" );
+			ImGui::SliderFloat( "SSAO scale", &comb.scale, 0.0f, 2.0f );
+			ImGui::SliderFloat( "SSAO bias",  &comb.bias,  0.0f, 0.3f );
+		
 		const ImVec2 componentSize = ImGui::GetItemRectMax();
 	ImGui::End();
 	return componentSize;

@@ -45,6 +45,8 @@ namespace mr {
 		void drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj );
 		void drawSkybox( lvk::ICommandBuffer &buf, const mat4 &view, const mat4 &proj );
 
+		bool IsMSAAEnabled( void ) const { return _numSamples > 1; }
+
 	public:
 		GLFWwindow                          *window = nullptr;
 		std::unique_ptr<lvk::IContext>      ctx;
@@ -66,6 +68,7 @@ namespace mr {
 		bool cameraType   = false; // TODO: change this to an enum
 
 		bool options[RendererOption::MAX];
+		float ssaoDepthThreshold = 30.0f;
 
 		u32 _numSamples = 1;
 

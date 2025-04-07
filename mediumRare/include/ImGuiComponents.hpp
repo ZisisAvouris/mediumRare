@@ -30,4 +30,6 @@ namespace mr {
 	ImVec2 ImGuiEditNodeComponent( Scene &scene, MeshData &meshData, const mat4 &view, const mat4 &proj, s32 node, s32 &outUpdateMaterialIndex, const TextureCache &textureCache );
 
 	ImVec2 ImGuiLightControlsComponent( LightParams &lightParams, u32 shadowMapIndex, const ImVec2 pos = { 10, 10 } );
+
+	ImVec2 ImGuiSSAOControlsComponent( SSAOpc &pc, CombinePC &comb, s32 &blurPasses, f32 &depthThreshold, u32 ssaoTextureIndex, const ImVec2 pos = { 10, 10 } );
 }

@@ -12,6 +12,8 @@ namespace mr {
 		MSAAx4,
 		MSAAx8,
 		MSAAx16,
+		SSAO,
+		BlurSSAO,
 
 		MAX
 	};

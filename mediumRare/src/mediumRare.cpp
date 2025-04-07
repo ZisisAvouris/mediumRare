@@ -69,9 +69,11 @@ int main( void ) {
 
     LineCanvas3D canvas3d;
     std::unique_ptr<lvk::IContext> ctx( app.ctx.get() );
-    s32 selectedNode = -1, prevNumSamples = 1;
+    s32 selectedNode = -1, prevNumSamples = 1, numBlurPasses = 1;
 
-    const lvk::Dimensions fbSize = ctx->getDimensions( ctx->getCurrentSwapchainTexture() );
+    const lvk::Dimensions fbSize        = ctx->getDimensions( ctx->getCurrentSwapchainTexture() );
+    const lvk::Dimensions offscreenSize = fbSize;
+
     lvk::Holder<lvk::TextureHandle> msaaColor = ctx->createTexture({
         .format     = ctx->getSwapchainFormat(),
         .dimensions = fbSize,
@@ -87,6 +89,19 @@ int main( void ) {
         .usage      = lvk::TextureUsageBits_Attachment,
         .storage    = lvk::StorageType_Memoryless,
         .debugName  = "MSAA: Depth"
+    });
+
+    lvk::Holder<lvk::TextureHandle> offscreenColor = ctx->createTexture({
+        .format     = ctx->getSwapchainFormat(),
+        .dimensions = offscreenSize,
+        .usage      = lvk::TextureUsageBits_Attachment | lvk::TextureUsageBits_Storage | lvk::TextureUsageBits_Sampled,
+        .debugName  = "Buffer: offscreen color"
+    });
+    lvk::Holder<lvk::TextureHandle> offscreenDepth = ctx->createTexture({
+        .format     = app.getDepthFormat(),
+        .dimensions = offscreenSize,
+        .usage      = lvk::TextureUsageBits_Attachment | lvk::TextureUsageBits_Sampled,
+        .debugName  = "Buffer: offscreen depth"
     });
 
     LightParams light, prevLight = { .depthBiasConst = 0 };
@@ -111,6 +126,90 @@ int main( void ) {
         .size      = sizeof(LightData),
         .debugName = "Buffer: light"
     });
+
+    lvk::Holder<lvk::ShaderModuleHandle> compSSAO = loadShaderModule( ctx, "../shaders/SSAO.comp" );
+    lvk::Holder<lvk::ComputePipelineHandle> pipelineSSAO = ctx->createComputePipeline( { .smComp = compSSAO } );
+
+    lvk::Holder<lvk::ShaderModuleHandle> compBlur = loadShaderModule( ctx, "../../data/shaders/Blur.comp" );
+    const u32 kHorizontal = 1, kVertical = 0;
+    lvk::Holder<lvk::ComputePipelineHandle> pipelineBlurX = ctx->createComputePipeline({
+        .smComp   = compBlur,
+        .specInfo = {
+            .entries = { {
+                .constantId = 0,
+                .size       = sizeof(u32)
+            } },
+            .data     = &kHorizontal,
+            .dataSize = sizeof(u32)
+        }
+    });
+    lvk::Holder<lvk::ComputePipelineHandle> pipelineBlurY = ctx->createComputePipeline({
+        .smComp   = compBlur,
+        .specInfo = {
+            .entries = { {
+                .constantId = 0,
+                .size       = sizeof(u32)
+            } },
+            .data     = &kVertical,
+            .dataSize = sizeof(u32)
+        } 
+    });
+
+    lvk::Holder<lvk::ShaderModuleHandle> vertCombine = loadShaderModule( ctx, "../../data/shaders/QuadFlip.vert" );
+    lvk::Holder<lvk::ShaderModuleHandle> fragCombine = loadShaderModule( ctx, "../shaders/combine.frag" );
+    lvk::Holder<lvk::RenderPipelineHandle> pipelineCombine = ctx->createRenderPipeline({
+        .smVert = vertCombine,
+        .smFrag = fragCombine,
+        .color  = {{ .format = ctx->getSwapchainFormat() }}
+    });
+
+    lvk::Holder<lvk::TextureHandle> textureSSAO = ctx->createTexture({
+        .format     = ctx->getSwapchainFormat(),
+        .dimensions = fbSize,
+        .usage      = lvk::TextureUsageBits_Sampled | lvk::TextureUsageBits_Storage,
+        .debugName  = "Texture SSAO"
+    });
+    lvk::Holder<lvk::TextureHandle> textureBlur[] = {
+        ctx->createTexture({
+            .format     = ctx->getSwapchainFormat(),
+            .dimensions = fbSize,
+            .usage      = lvk::TextureUsageBits_Sampled | lvk::TextureUsageBits_Storage,
+            .debugName  = "Texture Blur 0"
+        }),
+        ctx->createTexture({
+            .format     = ctx->getSwapchainFormat(),
+            .dimensions = fbSize,
+            .usage      = lvk::TextureUsageBits_Sampled | lvk::TextureUsageBits_Storage,
+            .debugName  = "Texture Blur 1"
+        })
+    };
+
+    lvk::Holder<lvk::TextureHandle> textureRot   = loadTexture( ctx, "../../data/rot_texture.bmp" );
+    lvk::Holder<lvk::SamplerHandle> samplerClamp = ctx->createSampler({
+        .wrapU = lvk::SamplerWrap_Clamp,
+        .wrapV = lvk::SamplerWrap_Clamp,
+        .wrapW = lvk::SamplerWrap_Clamp
+    });
+
+    struct SSAOpc ssaoPC {
+        .textureDepth = offscreenDepth.index(),
+        .textureRot   = textureRot.index(),
+        .textureOut   = textureSSAO.index(),
+        .sampler      = samplerClamp.index(),
+        .zNear        = 0.01f,
+        .zFar         = 1000.0f,
+        .radius       = 0.03f,
+        .attScale     = 0.95f,
+        .distScale    = 1.7f
+    };
+
+    struct CombinePC combinePC {
+        .textureColor = offscreenColor.index(),
+        .textureSSAO  = textureSSAO.index(),
+        .sampler      = samplerClamp.index(),
+        .scale        = 1.5f,
+        .bias         = 0.16f
+    };
 
     const VkMesh mesh( ctx, meshData, scene );
     Pipeline shadowPipeline( ctx, meshData.streams, lvk::Format_Invalid, ctx->getFormat(shadowMap), 1,
@@ -137,11 +236,8 @@ int main( void ) {
                                  0.5, 0.5, 0.0, 1.0 );
 
     app.run( [&]( uint32_t width, uint32_t height, float aspectRatio, float deltaSeconds ) {
-        
-        const lvk::Framebuffer fbMain = { .color = { { .texture = ctx->getCurrentSwapchainTexture() } } };
-
         const mat4 view = app.camera.getViewMatrix();
-        const mat4 proj = glm::perspective( 45.0f, aspectRatio, 0.01f, 200.0f );
+        const mat4 proj = glm::perspective( 45.0f, aspectRatio, ssaoPC.zNear, ssaoPC.zFar );
 
         const mat4 rot1      = glm::rotate( mat4(1.0f), glm::radians(light.theta), glm::vec3(0, 1, 0) );
         const mat4 rot2      = glm::rotate( rot1, glm::radians(light.phi), glm::vec3(1, 0, 0) );
@@ -153,6 +249,8 @@ int main( void ) {
 
         s32 updateMaterialIndex = -1;
         lvk::ICommandBuffer &buf = ctx->acquireCommandBuffer(); {
+
+#pragma region Render_Shadow_Map
             if ( prevLight != light ) { // Only update shadow map when the light parameters changed
                 prevLight = light;
                 buf.cmdBeginRendering(
@@ -174,20 +272,27 @@ int main( void ) {
                     .shadowSampler = shadowSampler.index()
                 });
             }
+#pragma endregion
 
+#pragma region Render_Scene
             const lvk::RenderPass renderPass = {
-                .color = { { .loadOp = lvk::LoadOp_Clear,
-                             .storeOp = ( app._numSamples > 1 ) ? lvk::StoreOp_MsaaResolve : lvk::StoreOp_Store,
+                .color = { { .loadOp     = lvk::LoadOp_Clear,
+                             .storeOp    = app.IsMSAAEnabled() ? lvk::StoreOp_MsaaResolve : lvk::StoreOp_Store,
                              .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f }
                 } },
-                .depth = {   .loadOp = lvk::LoadOp_Clear, .clearDepth = 1.0f }
+                .depth = {   .loadOp     = lvk::LoadOp_Clear,
+                             .storeOp    = app.IsMSAAEnabled() ? lvk::StoreOp_MsaaResolve : lvk::StoreOp_Store,
+                             .clearDepth = 1.0f }
             };
             const lvk::Framebuffer offscreen = {
                 .color = { {
-                    .texture        = ( app._numSamples > 1 ) ? msaaColor : ctx->getCurrentSwapchainTexture(),
-                    .resolveTexture = ( app._numSamples > 1 ) ? ctx->getCurrentSwapchainTexture() : lvk::TextureHandle{}
+                    .texture        = app.IsMSAAEnabled() ? msaaColor      : offscreenColor,
+                    .resolveTexture = app.IsMSAAEnabled() ? offscreenColor : lvk::TextureHandle{}
                 } },
-                .depthStencil = { .texture = ( app._numSamples > 1 ) ? msaaDepth : app.getDepthTexture() }
+                .depthStencil = {
+                    .texture        = app.IsMSAAEnabled() ? msaaDepth      : offscreenDepth,
+                    .resolveTexture = app.IsMSAAEnabled() ? offscreenDepth : lvk::TextureHandle{}
+                }
             };
             buf.cmdBeginRendering( renderPass, offscreen, { .textures = lvk::TextureHandle(shadowMap) } );
                 app.drawSkybox( buf, view, proj );
@@ -235,12 +340,89 @@ int main( void ) {
                 }
                 canvas3d.render( *ctx.get(), offscreen, buf, app._numSamples );
             buf.cmdEndRendering();
+#pragma endregion
 
-            buf.cmdBeginRendering( lvk::RenderPass {
-                .color = { { .loadOp = lvk::LoadOp_Load, .storeOp = lvk::StoreOp_Store, .clearColor =  { 1.0f, 1.0f, 1.0f, 1.0f } } } },
-                fbMain
-            );
-            app.imgui->beginFrame( fbMain );
+#pragma region Compute_SSAO
+            buf.cmdPushDebugGroupLabel( "Compute SSAO", 0xFF805020 );
+                buf.cmdBindComputePipeline( pipelineSSAO );
+                buf.cmdPushConstants( ssaoPC );
+                buf.cmdDispatchThreadGroups({
+                    .width  = 1 + (u32)fbSize.width / 16,
+                    .height = 1 + (u32)fbSize.height / 16
+                }, {
+                    .textures = { lvk::TextureHandle( offscreenDepth ), lvk::TextureHandle( textureSSAO ) }
+                });
+            buf.cmdPopDebugGroupLabel();
+#pragma endregion
+
+#pragma region Blur_SSAO
+            if ( app.options[mr::RendererOption::BlurSSAO] ) {
+                buf.cmdPushDebugGroupLabel( "Blur SSAO", 0xFF205080 );
+                    const lvk::Dimensions blurDim = {
+                        .width  = 1 + (u32)fbSize.width / 16,
+                        .height = 1 + (u32)fbSize.height / 16 
+                    };
+                    struct BlurPC {
+                        u32 textureDepth;
+                        u32 textureIn;
+                        u32 textureOut;
+                        f32 depthThreshold;
+                    };
+                    struct BlurPass {
+                        lvk::TextureHandle textureIn;
+                        lvk::TextureHandle textureOut;
+                    };
+                    std::vector<BlurPass> passes;
+                    passes.reserve( 2 * numBlurPasses );
+                    passes.push_back( { textureSSAO, textureBlur[0] } );
+                    for ( s32 i = 0; i != numBlurPasses - 1; ++i ) {
+                        passes.push_back( { textureBlur[0], textureBlur[1] } );
+                        passes.push_back( { textureBlur[1], textureBlur[0] } );
+                    }
+                    passes.push_back( { textureBlur[0], textureSSAO } );
+                    for ( u32 i = 0; i != passes.size(); ++i ) {
+                        const BlurPass p = passes[i];
+                        buf.cmdBindComputePipeline( i & 1 ? pipelineBlurX : pipelineBlurY );
+                        buf.cmdPushConstants( BlurPC {
+                            .textureDepth   = offscreenDepth.index(),
+                            .textureIn      = p.textureIn.index(),
+                            .textureOut     = p.textureOut.index(),
+                            .depthThreshold = ssaoPC.zFar * app.ssaoDepthThreshold 
+                        });
+                        buf.cmdDispatchThreadGroups( blurDim, { .textures = { p.textureIn, p.textureOut, lvk::TextureHandle(offscreenDepth) } } );
+                    }
+                buf.cmdPopDebugGroupLabel();
+            }
+#pragma endregion
+
+#pragma region Render_Scene_With_SSAO
+            buf.cmdPushDebugGroupLabel( "Combine Pass", 0xFF204060 );
+                if ( app.options[mr::RendererOption::SSAO] ) {
+                    buf.cmdCopyImage( textureSSAO, ctx->getCurrentSwapchainTexture(), offscreenSize );
+                } else {
+                    buf.cmdCopyImage( offscreenColor, ctx->getCurrentSwapchainTexture(), offscreenSize );
+                }
+
+                const lvk::RenderPass renderPassMain = {
+                    .color = { { .loadOp = lvk::LoadOp_Load, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } }
+                };
+                const lvk::Framebuffer framebufferMain = {
+                    .color = { { .texture = ctx->getCurrentSwapchainTexture() } }
+                };
+
+            buf.cmdBeginRendering( renderPassMain, framebufferMain, { .textures = {lvk::TextureHandle(textureSSAO)} } );
+                    if ( app.options[mr::RendererOption::SSAO] ) {
+                        buf.cmdBindRenderPipeline( pipelineCombine );
+                        //combinePC.textureColor = app.IsMSAAEnabled() ? offscreenColor.index() : ctx->getCurrentSwapchainTexture().index(); 
+                        buf.cmdPushConstants( combinePC );
+                        buf.cmdBindDepthState({});
+                        buf.cmdDraw(3);
+                    }
+            buf.cmdPopDebugGroupLabel();
+#pragma endregion
+
+#pragma region Render_UI
+            app.imgui->beginFrame( framebufferMain );
                 const ImVec2 statsSize         = mr::ImGuiFPSComponent( app.fpsCounter.getFPS() );
                 const ImVec2 camControlSize    = mr::ImGuiCameraControlsComponent( app.cameraPos, app.cameraAngles, app.cameraType, { 10.0f, statsSize.y + mr::COMPONENT_PADDING } );
                 if ( app.cameraType == false ) {
@@ -283,11 +465,13 @@ int main( void ) {
                 }
 
                 const ImVec2 lightControlsSize = mr::ImGuiLightControlsComponent( light, shadowMap.index(), { 10.0f, renderOptionsSize.y + mr::COMPONENT_PADDING } );
-
-                const ImVec2 sceneGraphSize    = mr::ImGuiSceneGraphComponent( scene, selectedNode, { 10.0f, lightControlsSize.y + mr::COMPONENT_PADDING } );
+                const ImVec2 ssaoControlsSize  = mr::ImGuiSSAOControlsComponent( ssaoPC, combinePC, numBlurPasses, app.ssaoDepthThreshold,
+                    textureSSAO.index(), { 10.0f, lightControlsSize.y + mr::COMPONENT_PADDING } );
+                const ImVec2 sceneGraphSize    = mr::ImGuiSceneGraphComponent( scene, selectedNode, { 10.0f, ssaoControlsSize.y + mr::COMPONENT_PADDING } );
                 mr::ImGuiEditNodeComponent( scene, meshData, view, proj, selectedNode, updateMaterialIndex, mesh.textureCache_ );
             app.imgui->endFrame( buf );
             buf.cmdEndRendering();
+#pragma endregion
         }
         ctx->submit( buf, ctx->getCurrentSwapchainTexture() );
 

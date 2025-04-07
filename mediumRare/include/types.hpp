@@ -31,3 +31,23 @@ struct LightData {
     u32       shadowTexture;
     u32       shadowSampler;
 };
+
+struct SSAOpc {
+    u32 textureDepth;
+    u32 textureRot;
+    u32 textureOut;
+    u32 sampler;
+    f32 zNear;
+    f32 zFar;
+    f32 radius;
+    f32 attScale;
+    f32 distScale;
+};
+
+struct CombinePC {
+    u32 textureColor;
+    u32 textureSSAO;
+    u32 sampler;
+    f32 scale;
+    f32 bias;
+};
