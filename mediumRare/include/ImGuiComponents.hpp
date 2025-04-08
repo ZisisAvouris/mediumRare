@@ -13,7 +13,7 @@
 using TextureCache = std::vector<lvk::Holder<lvk::TextureHandle>>;
 
 namespace mr {
-	static constexpr float COMPONENT_PADDING = 20.0f;
+	static constexpr float COMPONENT_PADDING = 5.0f;
 
 	f32 __computeMaxItemWidth( const char **items, size_t itemsLength );
 
@@ -32,4 +32,6 @@ namespace mr {
 	ImVec2 ImGuiLightControlsComponent( LightParams &lightParams, u32 shadowMapIndex, const ImVec2 pos = { 10, 10 } );
 
 	ImVec2 ImGuiSSAOControlsComponent( SSAOpc &pc, CombinePC &comb, s32 &blurPasses, f32 &depthThreshold, u32 ssaoTextureIndex, const ImVec2 pos = { 10, 10 } );
+
+	ImVec2 ImGuiBloomToneMapControlsComponent( ToneMapPC &pcHDR, BrightPassPC &brightPassPC, s32 &blurPasses, const ImVec2 pos = { 10, 10 } );
 }

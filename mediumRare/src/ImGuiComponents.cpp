@@ -12,8 +12,7 @@ f32 mr::__computeMaxItemWidth( const char **items, size_t itemsLength ) {
 ImVec2 mr::ImGuiFPSComponent( const float fps, const ImVec2 pos ) {
 	ImGui::SetNextWindowPos( pos );
 	ImGui::Begin( "Stats:", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
-		ImGui::Text("FPS: %i", int(fps) );
-		ImGui::Text("Frametime: %.2f ms", 1000.0f / fps );
+		ImGui::Text("FPS: %i, Frametime: %.2f ms", int(fps), 1000.0f / fps );
 		const ImVec2 componentSize = ImGui::GetItemRectMax();
 	ImGui::End();
 	return componentSize;
@@ -25,6 +24,7 @@ ImVec2 mr::ImGuiCameraControlsComponent( glm::vec3 &cameraPos, glm::vec3 &camera
 	static const char *currentComboBoxItem = cameraType;
 
 	ImGui::SetNextWindowPos( pos );
+	ImGui::SetNextWindowCollapsed( true, ImGuiCond_Once );
 	ImGui::Begin( "Camera Controls:", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
 		static f32 dropDownWidth = __computeMaxItemWidth( comboBoxItems, IM_ARRAYSIZE(comboBoxItems)) + ImGui::GetStyle().FramePadding.x * 2
 				+ ImGui::GetStyle().ItemInnerSpacing.x + ImGui::GetFrameHeight();
@@ -82,6 +82,22 @@ ImVec2 mr::ImGuiRenderOptionsComponent( std::span<bool> options, const ImVec2 po
 
 		ImGui::Checkbox( "Enable SSAO", &options[RendererOption::SSAO] );
 		ImGui::Checkbox( "Blur SSAO",   &options[RendererOption::BlurSSAO] );
+		if ( !options[RendererOption::SSAO] )
+			options[RendererOption::BlurSSAO] = false;
+
+		ImGui::Checkbox( "Enable Bloom", &options[RendererOption::Bloom] );
+		
+		const char *toneMapOptions[] = { "None", "Reinhard", "Ochimura", "Khronos PBR" };
+		static s32 currentToneMapping = 0;
+
+		static f32 ddw = __computeMaxItemWidth( toneMapOptions, IM_ARRAYSIZE(toneMapOptions) ) + ImGui::GetStyle().FramePadding.x * 2
+			+ ImGui::GetStyle().ItemInnerSpacing.x + ImGui::GetFrameHeight();
+		ImGui::SetNextItemWidth( ddw );
+		if ( ImGui::Combo( "ToneMapping", &currentToneMapping, toneMapOptions, IM_ARRAYSIZE(toneMapOptions) ) ) {
+			for ( s32 i = RendererOption::ToneMappingNone; i <= RendererOption::ToneMappingKhronosPBR; ++i )
+				options[i] = false;
+			options[currentToneMapping + RendererOption::ToneMappingNone] = true;
+		}
 
 		const ImVec2 componentSize = ImGui::GetItemRectMax();
 	ImGui::End();
@@ -127,6 +143,7 @@ s32 mr::__renderSceneTreeUI( const Scene &scene, s32 node, s32 selectedNode ) {
 
 ImVec2 mr::ImGuiSceneGraphComponent( const Scene &scene, s32 &selectedNode, const ImVec2 pos ) {
 	ImGui::SetNextWindowPos( pos );
+	ImGui::SetNextWindowCollapsed( true, ImGuiCond_Once );
 	ImGui::Begin( "Scene Graph:", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
 		const s32 node = mr::__renderSceneTreeUI( scene, 0, selectedNode );
 		if ( node > -1 ) {
@@ -263,6 +280,7 @@ ImVec2 mr::ImGuiLightControlsComponent( LightParams &lightParams, u32 shadowMapI
 	const char *items[] = { "Depth Bias Constant", "Depth Bias Slope", "Theta", "Phi" };
 
 	ImGui::SetNextWindowPos( pos );
+	ImGui::SetNextWindowCollapsed( true, ImGuiCond_Once );
 	ImGui::Begin( "Light", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
 
 		static f32 dropDownWidth = __computeMaxItemWidth( items, IM_ARRAYSIZE(items) ) + ImGui::GetStyle().FramePadding.x * 2
@@ -285,8 +303,8 @@ ImVec2 mr::ImGuiLightControlsComponent( LightParams &lightParams, u32 shadowMapI
 }
 
 ImVec2 mr::ImGuiSSAOControlsComponent( SSAOpc &pc, CombinePC &comb, s32 &blurPasses, f32 &depthThreshold, u32 ssaoTextureIndex, const ImVec2 pos ) {
-	
 	ImGui::SetNextWindowPos( pos );
+	ImGui::SetNextWindowCollapsed( true, ImGuiCond_Once );
 	ImGui::Begin( "SSAO Controls", nullptr, ImGuiWindowFlags_AlwaysAutoResize );
 
 		ImGui::Text( "SSAO Blur Controls" );
@@ -306,6 +324,43 @@ ImVec2 mr::ImGuiSSAOControlsComponent( SSAOpc &pc, CombinePC &comb, s32 &blurPas
 			ImGui::SliderFloat( "SSAO scale", &comb.scale, 0.0f, 2.0f );
 			ImGui::SliderFloat( "SSAO bias",  &comb.bias,  0.0f, 0.3f );
 		
+		const ImVec2 componentSize = ImGui::GetItemRectMax();
+	ImGui::End();
+	return componentSize;
+}
+
+ImVec2 mr::ImGuiBloomToneMapControlsComponent( ToneMapPC &pcHDR, BrightPassPC &brightPassPC, s32 &blurPasses, const ImVec2 pos ) {
+	ImGui::SetNextWindowPos( pos );
+	ImGui::SetNextWindowCollapsed( true, ImGuiCond_Once );
+	ImGui::Begin( "Bloom & ToneMapping Controls", nullptr, ImGuiWindowFlags_AlwaysAutoResize  );
+
+		ImGui::SliderFloat( "Bloom strength",      &pcHDR.bloomStrength, 0.0f, 1.0f );
+		ImGui::SliderInt( "Bloom Blur Num Passes", &blurPasses,            1,    5 );
+
+		ImGui::Separator();
+		ImGui::Text( "Reinhard" );
+		ImGui::SliderFloat( "Max White", &pcHDR.maxWhite, 0.5f, 2.0f );
+
+		ImGui::Separator();
+		ImGui::Text( "Uchimura" );
+		ImGui::SliderFloat( "Max Brightness",        &pcHDR.P, 1.0f, 2.0f );
+		ImGui::SliderFloat( "Contrast",              &pcHDR.a, 0.0f, 5.0f );
+		ImGui::SliderFloat( "Linear Section Start",  &pcHDR.m, 0.0f, 1.0f );
+		ImGui::SliderFloat( "Linear Section Length", &pcHDR.l, 0.0f, 1.0f );
+		ImGui::SliderFloat( "Black Tightness",       &pcHDR.c, 1.0f, 3.0f );
+		ImGui::SliderFloat( "Pedestal",              &pcHDR.b, 0.0f, 1.0f );
+
+		ImGui::Separator();
+		ImGui::Text( "Khronos PBR" );
+		ImGui::SliderFloat( "Hightlight Compressions Start", &pcHDR.startCompression, 0.0f, 1.0f );
+		ImGui::SliderFloat( "Desaturation Speed",            &pcHDR.desaturation,     0.0f, 1.0f );
+
+		if ( ImGui::CollapsingHeader( "Preview Bright Pass Texture" ) ) {
+			ImGui::Image(brightPassPC.texOut, ImVec2( 512, 512 ) );
+		}
+		if ( ImGui::CollapsingHeader( "Preview Bloom Texture" ) ) {
+			ImGui::Image( pcHDR.texBloom, ImVec2( 512, 512 ) );
+		}
 		const ImVec2 componentSize = ImGui::GetItemRectMax();
 	ImGui::End();
 	return componentSize;

@@ -90,13 +90,15 @@ mr::App::App( std::string skyboxTexFilename, std::string skyboxIrrFilename ) {
 
 	// Default Render Options
 	std::fill( &options[0], &options[RendererOption::MAX], false );
-	options[RendererOption::Skybox]   = true;
-	options[RendererOption::NoAA]     = true;
-	options[RendererOption::SSAO]	  = true;
-	options[RendererOption::BlurSSAO] = true;
+	options[RendererOption::Skybox]          = true;
+	options[RendererOption::NoAA]            = true;
+	options[RendererOption::SSAO]	         = true;
+	options[RendererOption::BlurSSAO]        = true;
+	options[RendererOption::Bloom]           = true;
+	options[RendererOption::ToneMappingNone] = true;
 
 	// Initialize Grid
-	gridPipeline = new Pipeline( ctx, {}, ctx->getSwapchainFormat(), getDepthFormat(), 1,
+	gridPipeline = new Pipeline( ctx, {}, lvk::Format_RGBA_F16, getDepthFormat(), 1,
 		loadShaderModule( ctx, "../shaders/grid.vert"),
 		loadShaderModule( ctx, "../shaders/grid.frag") );
 
@@ -108,7 +110,7 @@ mr::App::App( std::string skyboxTexFilename, std::string skyboxIrrFilename ) {
 	skyboxPipeline   = ctx->createRenderPipeline({
 		.smVert       = skyboxVert,
 		.smFrag       = skyboxFrag,
-		.color        = { { .format = ctx->getSwapchainFormat() } },
+		.color        = { { .format = lvk::Format_RGBA_F16 } },
 		.depthFormat  = getDepthFormat(),
 		.samplesCount = 1
 	});
@@ -163,7 +165,7 @@ void mr::App::drawGrid( lvk::ICommandBuffer &buf, const mat4 &proj ) {
 	static u32 lastSamplesCount = 1;
 	if ( lastSamplesCount != _numSamples ) { // TODO: this is ugly, remove the Pipeline abstraction
 		delete gridPipeline;
-		gridPipeline = new Pipeline( ctx, {}, ctx->getSwapchainFormat(), getDepthFormat(), _numSamples,
+		gridPipeline = new Pipeline( ctx, {}, lvk::Format_RGBA_F16, getDepthFormat(), _numSamples,
 			loadShaderModule( ctx, "../shaders/grid.vert"),
 			loadShaderModule( ctx, "../shaders/grid.frag") );
 		lastSamplesCount = _numSamples;
@@ -197,7 +199,7 @@ void mr::App::drawSkybox( lvk::ICommandBuffer &buf, const mat4 &view, const mat4
 		skyboxPipeline = ctx->createRenderPipeline({
 			.smVert       = skyboxVert,
 			.smFrag       = skyboxFrag,
-			.color        = { { .format = ctx->getSwapchainFormat() } },
+			.color        = { { .format = lvk::Format_RGBA_F16 } },
 			.depthFormat  = getDepthFormat(),
 			.samplesCount = _numSamples
 		});

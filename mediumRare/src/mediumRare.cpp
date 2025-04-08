@@ -69,13 +69,14 @@ int main( void ) {
 
     LineCanvas3D canvas3d;
     std::unique_ptr<lvk::IContext> ctx( app.ctx.get() );
-    s32 selectedNode = -1, prevNumSamples = 1, numBlurPasses = 1;
+    s32 selectedNode = -1, prevNumSamples = 1, numBlurPassesSSAO = 1, numBlurPassesBloom = 1;
+    const lvk::Format kOffscreenFormat = lvk::Format_RGBA_F16;
 
     const lvk::Dimensions fbSize        = ctx->getDimensions( ctx->getCurrentSwapchainTexture() );
     const lvk::Dimensions offscreenSize = fbSize;
 
     lvk::Holder<lvk::TextureHandle> msaaColor = ctx->createTexture({
-        .format     = ctx->getSwapchainFormat(),
+        .format     = kOffscreenFormat,
         .dimensions = fbSize,
         .numSamples = app._numSamples,
         .usage      = lvk::TextureUsageBits_Attachment,
@@ -92,7 +93,7 @@ int main( void ) {
     });
 
     lvk::Holder<lvk::TextureHandle> offscreenColor = ctx->createTexture({
-        .format     = ctx->getSwapchainFormat(),
+        .format     = kOffscreenFormat,
         .dimensions = offscreenSize,
         .usage      = lvk::TextureUsageBits_Attachment | lvk::TextureUsageBits_Storage | lvk::TextureUsageBits_Sampled,
         .debugName  = "Buffer: offscreen color"
@@ -130,6 +131,12 @@ int main( void ) {
     lvk::Holder<lvk::ShaderModuleHandle> compSSAO = loadShaderModule( ctx, "../shaders/SSAO.comp" );
     lvk::Holder<lvk::ComputePipelineHandle> pipelineSSAO = ctx->createComputePipeline( { .smComp = compSSAO } );
 
+    struct BlurPass {
+        lvk::TextureHandle textureIn;
+        lvk::TextureHandle textureOut;
+    };
+    std::vector<BlurPass> blurPassesSSAO( 2 * 5 );  // Maximum number of blur passes for SSAO is 5
+    std::vector<BlurPass> blurPassesBloom( 2 * 5 ); // Maximum number of blur passes for Bloom is 5
     lvk::Holder<lvk::ShaderModuleHandle> compBlur = loadShaderModule( ctx, "../../data/shaders/Blur.comp" );
     const u32 kHorizontal = 1, kVertical = 0;
     lvk::Holder<lvk::ComputePipelineHandle> pipelineBlurX = ctx->createComputePipeline({
@@ -160,7 +167,7 @@ int main( void ) {
     lvk::Holder<lvk::RenderPipelineHandle> pipelineCombine = ctx->createRenderPipeline({
         .smVert = vertCombine,
         .smFrag = fragCombine,
-        .color  = {{ .format = ctx->getSwapchainFormat() }}
+        .color  = {{ .format = kOffscreenFormat }}
     });
 
     lvk::Holder<lvk::TextureHandle> textureSSAO = ctx->createTexture({
@@ -211,11 +218,90 @@ int main( void ) {
         .bias         = 0.16f
     };
 
+    lvk::Holder<lvk::ShaderModuleHandle> compBrightPass = loadShaderModule( ctx, "../shaders/BrightPass.comp" );
+    lvk::Holder<lvk::ComputePipelineHandle> pipelineBrightPass = ctx->createComputePipeline( { .smComp = compBrightPass } );
+    
+    lvk::Holder<lvk::ShaderModuleHandle> compBloomPass = loadShaderModule( ctx, "../shaders/Bloom.comp" );
+    lvk::Holder<lvk::ComputePipelineHandle> pipelineBloomX = ctx->createComputePipeline({
+        .smComp   = compBloomPass,
+        .specInfo = {
+            .entries = {{ .constantId = 0, .size = sizeof(u32) }},
+            .data     = &kHorizontal,
+            .dataSize = sizeof(u32)
+        }
+    });
+    lvk::Holder<lvk::ComputePipelineHandle> pipelineBloomY = ctx->createComputePipeline({
+        .smComp   = compBloomPass,
+        .specInfo = {
+            .entries = {{ .constantId = 0, .size = sizeof(u32) }},
+            .data     = &kVertical,
+            .dataSize = sizeof(u32)
+        }
+    });
+
+    lvk::Holder<lvk::ShaderModuleHandle> vertToneMap = loadShaderModule( ctx, "../../data/shaders/QuadFlip.vert" );
+    lvk::Holder<lvk::ShaderModuleHandle> fragToneMap = loadShaderModule( ctx, "../shaders/ToneMap.frag" );
+    lvk::Holder<lvk::RenderPipelineHandle> pipelineToneMap = ctx->createRenderPipeline({
+        .smVert = vertToneMap,
+        .smFrag = fragToneMap,
+        .color  = { { .format = ctx->getSwapchainFormat() } },
+    });
+    const lvk::Dimensions sizeBloom = { 512, 512 };
+    lvk::Holder<lvk::TextureHandle> texBrightPass = ctx->createTexture({
+        .format     = kOffscreenFormat,
+        .dimensions = sizeBloom,
+        .usage      = lvk::TextureUsageBits_Sampled | lvk::TextureUsageBits_Storage,
+        .debugName  = "Texture: Bright Pass"
+    });
+    lvk::Holder<lvk::TextureHandle> texBloomPass = ctx->createTexture({
+        .format     = kOffscreenFormat,
+        .dimensions = sizeBloom,
+        .usage      = lvk::TextureUsageBits_Sampled | lvk::TextureUsageBits_Storage,
+        .debugName  = "Texture: Bloom Pass"
+    });
+
+    const lvk::ComponentMapping swizzle = { .r = lvk::Swizzle_R, .g = lvk::Swizzle_R, .b = lvk::Swizzle_R, .a = lvk::Swizzle_1 };
+    lvk::Holder<lvk::TextureHandle> texLumViews[10] = {
+        ctx->createTexture({
+            .format       = lvk::Format_R_F16,
+            .dimensions   = sizeBloom,
+            .usage        = lvk::TextureUsageBits_Sampled | lvk::TextureUsageBits_Storage,
+            .numMipLevels = lvk::calcNumMipLevels( sizeBloom.width, sizeBloom.height ),
+            .swizzle      = swizzle,
+            .debugName    = "Texture: Luminance"
+        })
+    };
+    for ( u32 v = 1; v != LVK_ARRAY_NUM_ELEMENTS( texLumViews ); ++v ) {
+        texLumViews[v] = ctx->createTextureView( texLumViews[0], { .mipLevel = v, .swizzle = swizzle } );
+    }
+
+    lvk::Holder<lvk::TextureHandle> texBloom[] = {
+        ctx->createTexture({
+            .format     = kOffscreenFormat,
+            .dimensions = sizeBloom,
+            .usage      = lvk::TextureUsageBits_Sampled | lvk::TextureUsageBits_Storage,
+            .debugName  = "Texture: Bloom 0"
+        }),
+        ctx->createTexture({
+            .format     = kOffscreenFormat,
+            .dimensions = sizeBloom,
+            .usage      = lvk::TextureUsageBits_Sampled | lvk::TextureUsageBits_Storage,
+            .debugName  = "Texture: Bloom 1"
+        }),
+    };
+    struct ToneMapPC pcHDR = {
+        .texColor     = offscreenColor.index(),
+        .texLuminance = texLumViews[LVK_ARRAY_NUM_ELEMENTS(texLumViews) - 1].index(),
+        .texBloom     = texBloomPass.index(),
+        .sampler      = samplerClamp.index(),
+        .tonemapMode  = 1
+    };
+
     const VkMesh mesh( ctx, meshData, scene );
     Pipeline shadowPipeline( ctx, meshData.streams, lvk::Format_Invalid, ctx->getFormat(shadowMap), 1,
         loadShaderModule( ctx, "../shaders/shadow.vert"),
         loadShaderModule( ctx, "../shaders/shadow.frag"), lvk::CullMode_None); // Experiment with backface culling here, it seems it makes no difference for bistro
-    Pipeline *opaquePipeline = new Pipeline( ctx, meshData.streams, ctx->getSwapchainFormat(), app.getDepthFormat(), app._numSamples,
+    Pipeline *opaquePipeline = new Pipeline( ctx, meshData.streams, kOffscreenFormat, app.getDepthFormat(), app._numSamples,
         loadShaderModule( ctx, "../shaders/main.vert" ),
         loadShaderModule( ctx, "../shaders/main.frag" ), lvk::CullMode_Back );
 
@@ -343,16 +429,18 @@ int main( void ) {
 #pragma endregion
 
 #pragma region Compute_SSAO
-            buf.cmdPushDebugGroupLabel( "Compute SSAO", 0xFF805020 );
-                buf.cmdBindComputePipeline( pipelineSSAO );
-                buf.cmdPushConstants( ssaoPC );
-                buf.cmdDispatchThreadGroups({
-                    .width  = 1 + (u32)fbSize.width / 16,
-                    .height = 1 + (u32)fbSize.height / 16
-                }, {
-                    .textures = { lvk::TextureHandle( offscreenDepth ), lvk::TextureHandle( textureSSAO ) }
-                });
-            buf.cmdPopDebugGroupLabel();
+            if ( app.options[mr::RendererOption::SSAO] ) {
+                buf.cmdPushDebugGroupLabel( "Compute SSAO", 0xFF805020 );
+                    buf.cmdBindComputePipeline( pipelineSSAO );
+                    buf.cmdPushConstants( ssaoPC );
+                    buf.cmdDispatchThreadGroups({
+                        .width  = 1 + (u32)fbSize.width / 16,
+                        .height = 1 + (u32)fbSize.height / 16
+                    }, {
+                        .textures = { lvk::TextureHandle( offscreenDepth ), lvk::TextureHandle( textureSSAO ) }
+                    });
+                buf.cmdPopDebugGroupLabel();
+            }
 #pragma endregion
 
 #pragma region Blur_SSAO
@@ -368,20 +456,15 @@ int main( void ) {
                         u32 textureOut;
                         f32 depthThreshold;
                     };
-                    struct BlurPass {
-                        lvk::TextureHandle textureIn;
-                        lvk::TextureHandle textureOut;
-                    };
-                    std::vector<BlurPass> passes;
-                    passes.reserve( 2 * numBlurPasses );
-                    passes.push_back( { textureSSAO, textureBlur[0] } );
-                    for ( s32 i = 0; i != numBlurPasses - 1; ++i ) {
-                        passes.push_back( { textureBlur[0], textureBlur[1] } );
-                        passes.push_back( { textureBlur[1], textureBlur[0] } );
+                    blurPassesSSAO.clear();
+                    blurPassesSSAO.push_back( { textureSSAO, textureBlur[0] } );
+                    for ( s32 i = 0; i != numBlurPassesSSAO - 1; ++i ) {
+                        blurPassesSSAO.push_back( { textureBlur[0], textureBlur[1] } );
+                        blurPassesSSAO.push_back( { textureBlur[1], textureBlur[0] } );
                     }
-                    passes.push_back( { textureBlur[0], textureSSAO } );
-                    for ( u32 i = 0; i != passes.size(); ++i ) {
-                        const BlurPass p = passes[i];
+                    blurPassesSSAO.push_back( { textureBlur[0], textureSSAO } );
+                    for ( u32 i = 0; i != blurPassesSSAO.size(); ++i ) {
+                        const BlurPass p = blurPassesSSAO[i];
                         buf.cmdBindComputePipeline( i & 1 ? pipelineBlurX : pipelineBlurY );
                         buf.cmdPushConstants( BlurPC {
                             .textureDepth   = offscreenDepth.index(),
@@ -403,21 +486,92 @@ int main( void ) {
                     buf.cmdCopyImage( offscreenColor, ctx->getCurrentSwapchainTexture(), offscreenSize );
                 }
 
-                const lvk::RenderPass renderPassMain = {
-                    .color = { { .loadOp = lvk::LoadOp_Load, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } }
-                };
-                const lvk::Framebuffer framebufferMain = {
-                    .color = { { .texture = ctx->getCurrentSwapchainTexture() } }
-                };
-
-            buf.cmdBeginRendering( renderPassMain, framebufferMain, { .textures = {lvk::TextureHandle(textureSSAO)} } );
+            buf.cmdBeginRendering(
+                { .color = {{ .loadOp = lvk::LoadOp_Load, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } }} },
+                { .color = { { .texture = offscreenColor } } },
+                { .textures = { app.options[mr::RendererOption::SSAO] ? lvk::TextureHandle(textureSSAO) : lvk::TextureHandle() } } );
                     if ( app.options[mr::RendererOption::SSAO] ) {
                         buf.cmdBindRenderPipeline( pipelineCombine );
-                        //combinePC.textureColor = app.IsMSAAEnabled() ? offscreenColor.index() : ctx->getCurrentSwapchainTexture().index(); 
                         buf.cmdPushConstants( combinePC );
                         buf.cmdBindDepthState({});
                         buf.cmdDraw(3);
+                        buf.cmdEndRendering();
                     }
+            buf.cmdPopDebugGroupLabel();
+#pragma endregion
+
+#pragma region Bright_Pass
+            buf.cmdPushDebugGroupLabel( "Bright Pass", 0xFF803050 );
+                BrightPassPC pcBrightPass = {
+                    .texColor     = offscreenColor.index(),
+                    .texOut       = texBrightPass.index(),
+                    .texLuminance = texLumViews[0].index(),
+                    .sampler      = samplerClamp.index(),
+                    .exposure     = pcHDR.exposure
+                };
+                buf.cmdBindComputePipeline( pipelineBrightPass );
+                buf.cmdPushConstants( pcBrightPass );
+                buf.cmdDispatchThreadGroups( sizeBloom.divide2D(16), { .textures = {
+                    lvk::TextureHandle( offscreenColor ),
+                    lvk::TextureHandle( texLumViews[0] )
+                } });
+                buf.cmdGenerateMipmap( texLumViews[0] );
+            buf.cmdPopDebugGroupLabel();
+#pragma endregion
+
+#pragma region Bloom_Pass
+            if ( app.options[mr::RendererOption::Bloom] ) {
+                buf.cmdPushDebugGroupLabel( "Bloom Pass", 0xFF503080 );
+                    struct BloomPC {
+                        u32 texIn;
+                        u32 texOut;
+                        u32 sampler;
+                    };
+                    struct StreaksPC {
+                        u32 texIn;
+                        u32 texOut;
+                        u32 texRotationPattern;
+                        u32 sampler;
+                    };
+                    blurPassesBloom.clear();
+                    blurPassesBloom.push_back( { texBrightPass, texBloom[0] } );
+                    for ( s32 i = 0; i != numBlurPassesBloom - 1; ++i ) {
+                        blurPassesBloom.push_back( { texBloom[0], texBloom[1] } );
+                        blurPassesBloom.push_back( { texBloom[1], texBloom[0] } );
+                    }
+                    blurPassesBloom.push_back( { texBloom[0], texBloomPass } );
+                    for ( u32 i = 0; i != blurPassesBloom.size(); ++i ) {
+                        const BlurPass p = blurPassesBloom[i];
+                        buf.cmdBindComputePipeline( i & 1 ? pipelineBloomX : pipelineBloomY );
+                        buf.cmdPushConstants( BloomPC {
+                            .texIn   = p.textureIn.index(),
+                            .texOut  = p.textureOut.index(),
+                            .sampler = samplerClamp.index()
+                        });
+                        buf.cmdDispatchThreadGroups( sizeBloom.divide2D(16), {
+                            .textures = { p.textureIn, p.textureOut, lvk::TextureHandle(texBrightPass)
+                        }});
+                    }
+                buf.cmdPopDebugGroupLabel();
+            }
+#pragma endregion
+
+#pragma region ToneMapping
+            const lvk::RenderPass renderPassMain = {
+                .color = { { .loadOp = lvk::LoadOp_Load, .clearColor = { 1.0f, 1.0f, 1.0f, 1.0f } } }
+            };
+            const lvk::Framebuffer framebufferMain = {
+                .color = { { .texture = ctx->getCurrentSwapchainTexture() } }
+            };
+
+            buf.cmdPushDebugGroupLabel( "ToneMapping", 0xFF701080 );
+                buf.cmdBeginRendering( renderPassMain, framebufferMain, {
+                    .textures = { lvk::TextureHandle(texLumViews[0]) }
+                });
+                buf.cmdBindRenderPipeline( pipelineToneMap );
+                buf.cmdPushConstants( pcHDR );
+                buf.cmdBindDepthState( {} );
+                buf.cmdDraw( 3 );
             buf.cmdPopDebugGroupLabel();
 #pragma endregion
 
@@ -440,7 +594,7 @@ int main( void ) {
                     msaaDepth = nullptr;
 
                     msaaColor = ctx->createTexture({
-                        .format     = ctx->getSwapchainFormat(),
+                        .format     = kOffscreenFormat,
                         .dimensions = fbSize,
                         .numSamples = app._numSamples,
                         .usage      = lvk::TextureUsageBits_Attachment,
@@ -457,17 +611,20 @@ int main( void ) {
                     });
 
                     delete opaquePipeline;
-                    opaquePipeline = new Pipeline( ctx, meshData.streams, ctx->getSwapchainFormat(), app.getDepthFormat(), app._numSamples,
+                    opaquePipeline = new Pipeline( ctx, meshData.streams, kOffscreenFormat, app.getDepthFormat(), app._numSamples,
                         loadShaderModule( ctx, "../shaders/main.vert" ),
                         loadShaderModule( ctx, "../shaders/main.frag" ), lvk::CullMode_Back );
 
                     prevNumSamples = app._numSamples;
                 }
+                s32 selectedToneMap = std::find( &app.options[mr::RendererOption::ToneMappingNone], &app.options[mr::RendererOption::ToneMappingKhronosPBR], true ) - app.options;
+                pcHDR.tonemapMode = selectedToneMap - mr::RendererOption::ToneMappingNone;
 
                 const ImVec2 lightControlsSize = mr::ImGuiLightControlsComponent( light, shadowMap.index(), { 10.0f, renderOptionsSize.y + mr::COMPONENT_PADDING } );
-                const ImVec2 ssaoControlsSize  = mr::ImGuiSSAOControlsComponent( ssaoPC, combinePC, numBlurPasses, app.ssaoDepthThreshold,
+                const ImVec2 ssaoControlsSize  = mr::ImGuiSSAOControlsComponent( ssaoPC, combinePC, numBlurPassesSSAO, app.ssaoDepthThreshold,
                     textureSSAO.index(), { 10.0f, lightControlsSize.y + mr::COMPONENT_PADDING } );
-                const ImVec2 sceneGraphSize    = mr::ImGuiSceneGraphComponent( scene, selectedNode, { 10.0f, ssaoControlsSize.y + mr::COMPONENT_PADDING } );
+                const ImVec2 bloomControlsSize = mr::ImGuiBloomToneMapControlsComponent( pcHDR, pcBrightPass, numBlurPassesBloom, { 10.0f, ssaoControlsSize.y + mr::COMPONENT_PADDING } );
+                const ImVec2 sceneGraphSize    = mr::ImGuiSceneGraphComponent( scene, selectedNode, { 10.0f, bloomControlsSize.y + mr::COMPONENT_PADDING } );
                 mr::ImGuiEditNodeComponent( scene, meshData, view, proj, selectedNode, updateMaterialIndex, mesh.textureCache_ );
             app.imgui->endFrame( buf );
             buf.cmdEndRendering();

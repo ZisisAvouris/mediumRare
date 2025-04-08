@@ -51,3 +51,36 @@ struct CombinePC {
     f32 scale;
     f32 bias;
 };
+
+struct BrightPassPC {
+    u32 texColor;
+    u32 texOut;
+    u32 texLuminance;
+    u32 sampler;
+    f32 exposure;
+};
+
+struct ToneMapPC {
+    u32 texColor;
+    u32 texLuminance;
+    u32 texBloom;
+    u32 sampler;
+    u32 tonemapMode = 1;
+    f32 exposure = 0.95f;
+    f32 bloomStrength = 0.5f;
+        
+    // Reinhard
+    f32 maxWhite = 1.0f;
+
+    // Uchimura
+    f32 P = 1.0f;
+    f32 a = 1.05f;
+    f32 m = 0.1f;
+    f32 l = 0.8f;
+    f32 c = 3.0f;
+    f32 b = 0.0f;
+
+    // Khronos PBR
+    f32 startCompression = 0.8f;
+    f32 desaturation     = 0.15f;
+};
