@@ -553,6 +553,8 @@ int main( void ) {
                         }});
                     }
                 buf.cmdPopDebugGroupLabel();
+            } else {
+                pcHDR.bloomStrength = 0.0f; // Instead of clearing the bloom texture, zero out its impact on the final image
             }
 #pragma endregion
 
