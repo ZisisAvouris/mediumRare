@@ -4,6 +4,7 @@
 #include <shared/Scene/SceneUtils.h>
 #include <shared/Scene/MergeUtil.h>
 #include <shared/LineCanvas.h>
+#include <shared/UtilsMath.h>
 
 const char *cachedMeshesFilename    = ".cache/cache.meshes";
 const char *cachedMaterialsFilename = ".cache/cache.materials";
@@ -297,7 +298,7 @@ int main( void ) {
         .tonemapMode  = 1
     };
 
-    const VkMesh mesh( ctx, meshData, scene );
+    const VkMesh mesh( ctx, meshData, scene, lvk::StorageType_HostVisible );
     Pipeline shadowPipeline( ctx, meshData.streams, lvk::Format_Invalid, ctx->getFormat(shadowMap), 1,
         loadShaderModule( ctx, "../shaders/shadow.vert"),
         loadShaderModule( ctx, "../shaders/shadow.frag"), lvk::CullMode_None); // Experiment with backface culling here, it seems it makes no difference for bistro
@@ -324,6 +325,26 @@ int main( void ) {
     app.run( [&]( uint32_t width, uint32_t height, float aspectRatio, float deltaSeconds ) {
         const mat4 view = app.camera.getViewMatrix();
         const mat4 proj = glm::perspective( 45.0f, aspectRatio, ssaoPC.zNear, ssaoPC.zFar );
+
+        if ( app.options[mr::RendererOption::CullingCPU] ) {
+            vec4 frustumPlanes[6];
+            getFrustumPlanes( proj * view, frustumPlanes );
+            vec4 frustumCorners[8];
+            getFrustumCorners( proj * view, frustumCorners );
+
+            s32 numVisibleMeshes = 0;
+            {
+                DrawIndexedIndirectCommand *cmd = mesh.getDrawIndexedIndirectCommand();
+                for ( auto &p : scene.meshForNode ) {
+                    const BoundingBox box  = meshData.boxes[p.second].getTransformed( scene.globalTransform[p.first] );
+                    const u32 count        = isBoxInFrustum( frustumPlanes, frustumCorners, box ) ? 1 : 0;
+                    (cmd++)->instanceCount = count;
+                    numVisibleMeshes      += count;
+                }
+                // Flush changes to the GPU
+                ctx->flushMappedMemory( mesh.bufferIndirect_._bufferIndirect, 0, mesh.numMeshes_ * sizeof(DrawIndexedIndirectCommand) );
+            }
+        }
 
         const mat4 rot1      = glm::rotate( mat4(1.0f), glm::radians(light.theta), glm::vec3(0, 1, 0) );
         const mat4 rot2      = glm::rotate( rot1, glm::radians(light.phi), glm::vec3(1, 0, 0) );
@@ -409,9 +430,11 @@ int main( void ) {
                 canvas3d.setMatrix( proj * view );
 
                 if ( app.options[mr::RendererOption::BoundingBox] ) {
-                    BoundingBox box;
+                    const DrawIndexedIndirectCommand *cmd = mesh.getDrawIndexedIndirectCommand();
                     for ( auto &p : scene.meshForNode ) {
-                        box = meshData.boxes[p.second];
+                        if ( (cmd++)->instanceCount == 0 && app.options[mr::RendererOption::CullingCPU] )
+                            continue;
+                        const BoundingBox box = meshData.boxes[p.second];
                         canvas3d.box( scene.globalTransform[p.first], box, vec4(1, 0, 0, 1) );
                     }
                 }

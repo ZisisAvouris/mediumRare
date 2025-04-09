@@ -96,6 +96,7 @@ mr::App::App( std::string skyboxTexFilename, std::string skyboxIrrFilename ) {
 	options[RendererOption::BlurSSAO]        = true;
 	options[RendererOption::Bloom]           = true;
 	options[RendererOption::ToneMappingNone] = true;
+	options[RendererOption::CullingCPU]	     = true;
 
 	// Initialize Grid
 	gridPipeline = new Pipeline( ctx, {}, lvk::Format_RGBA_F16, getDepthFormat(), 1,

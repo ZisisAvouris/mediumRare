@@ -43,6 +43,15 @@ public:
 		_ctx->upload( _bufferIndirect, _drawCommands.data(), sizeof(VkDrawIndexedIndirectCommand) * numCommands, sizeof(u32) );
 	}
 
+	void selectTo( IndirectBuffer &buf, const std::function<bool( const DrawIndexedIndirectCommand& )> &pred ) const {
+		buf._drawCommands.clear();
+		for ( const auto &c : _drawCommands ) {
+			if ( pred(c) )
+				buf._drawCommands.push_back( c );
+		}
+		buf.uploadIndirectBuffer();
+	}
+
 	DrawIndexedIndirectCommand *getDrawIndexedIndirectCommand() const {
 		LVK_ASSERT( _ctx->getMappedPtr(_bufferIndirect) );
 		return std::launder( reinterpret_cast<DrawIndexedIndirectCommand*>( _ctx->getMappedPtr(_bufferIndirect) + sizeof(u32)));
@@ -229,6 +238,8 @@ public:
 		const GLTFMaterialDataGPU mat = convertToGPUMaterial(ctx, materials[updateMaterialIndex], textureFiles_, textureCache_);
 		ctx->upload(bufferMaterials_, &mat, sizeof(mat), sizeof(mat) * updateMaterialIndex);
 	}
+
+	DrawIndexedIndirectCommand *getDrawIndexedIndirectCommand() const { return bufferIndirect_.getDrawIndexedIndirectCommand(); }
 
 public:
 	const std::unique_ptr<lvk::IContext>& ctx;

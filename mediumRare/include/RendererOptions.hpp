@@ -19,6 +19,9 @@ namespace mr {
 		ToneMappingReinhard,
 		ToneMappingUchimura,
 		ToneMappingKhronosPBR,
+		CullingNone,
+		CullingCPU,
+		CullingGPU,
 
 		MAX
 	};

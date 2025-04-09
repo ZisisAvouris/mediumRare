@@ -99,6 +99,18 @@ ImVec2 mr::ImGuiRenderOptionsComponent( std::span<bool> options, const ImVec2 po
 			options[currentToneMapping + RendererOption::ToneMappingNone] = true;
 		}
 
+		const char *cullingOptions[] = { "None", "CPU", "GPU" };
+		static s32 currentCulling    = 1;
+
+		static f32 cddw = __computeMaxItemWidth( cullingOptions, IM_ARRAYSIZE(cullingOptions) ) + ImGui::GetStyle().FramePadding.x * 2
+			+ ImGui::GetStyle().ItemInnerSpacing.x + ImGui::GetFrameHeight();
+		ImGui::SetNextItemWidth( cddw );
+		if ( ImGui::Combo( "Frustum Culling", &currentCulling, cullingOptions, IM_ARRAYSIZE(cullingOptions) ) ) {
+			for ( s32 i = RendererOption::CullingNone; i <= RendererOption::CullingGPU; ++i )
+				options[i] = false;
+			options[currentCulling + RendererOption::CullingNone] = true; 
+		}
+
 		const ImVec2 componentSize = ImGui::GetItemRectMax();
 	ImGui::End();
 	return componentSize;
